@@ -29,3 +29,52 @@ A premium full-stack inventory management system built with React, Express.js, a
 - Node.js 16+ installed
 - Supabase account and project
 - npm or yarn package manager
+
+
+## Project Structure
+
+```
+inventory-management/
+├── backend/
+│   ├── config/
+│   │   └── supabase.js          # Supabase client configuration
+│   ├── middleware/
+│   │   └── auth.js               # Authentication middleware
+│   ├── routes/
+│   │   ├── auth.js               # Authentication routes
+│   │   ├── products.js           # Product CRUD routes
+│   │   ├── purchases.js          # Purchase routes
+│   │   ├── sales.js              # Sales routes
+│   │   └── profiles.js           # User profile routes
+│   ├── server.js                 # Express server entry point
+│   └── package.json
+│
+└── frontend/
+    ├── src/
+    │   ├── components/           # Reusable UI components
+    │   │   ├── Button.jsx
+    │   │   ├── Card.jsx
+    │   │   ├── Input.jsx
+    │   │   ├── Modal.jsx
+    │   │   ├── Navbar.jsx
+    │   │   ├── Sidebar.jsx
+    │   │   └── LoadingSpinner.jsx
+    │   ├── contexts/
+    │   │   └── AuthContext.jsx   # Authentication context
+    │   ├── pages/
+    │   │   ├── Login.jsx
+    │   │   ├── Signup.jsx
+    │   │   ├── Dashboard.jsx
+    │   │   ├── Products.jsx
+    │   │   ├── Sales.jsx
+    │   │   └── Purchases.jsx
+    │   ├── utils/
+    │   │   └── supabase.js       # Supabase client config
+    │   ├── App.jsx               # Main app component
+    │   ├── main.jsx              # React entry point
+    │   └── index.css             # Premium design system
+    ├── index.html
+    ├── vite.config.js
+    └── package.json
+```
+
