@@ -1,20 +1,31 @@
 import express from 'express';
 import { supabase } from '../config/supabase.js';
-import { authenticate, requireAdmin } from '../middleware/auth.js';
+import { authenticate, requireStoreAccess, injectStoreMetadata } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// Get all products (public)
-router.get('/', async (req, res) => {
+// Helper function to filter sensitive fields for staff users
+const filterProductForRole = (product, role) => {
+    if (role === 'staff') {
+        // Remove cost_price for staff users
+        const { cost_price, ...filtered } = product;
+        return filtered;
+    }
+    return product;
+};
+
+// Get all products in a store
+router.get('/', authenticate, requireStoreAccess(), async (req, res) => {
     try {
         const { search, sortBy = 'name', order = 'asc' } = req.query;
 
         let query = supabase
             .from('products')
-            .select('*');
+            .select('*')
+            .eq('store_id', req.storeId);
 
         if (search) {
-            query = query.ilike('name', `%${search}%`);
+            query = query.or(`name.ilike.%${search}%,sku.ilike.%${search}%`);
         }
 
         query = query.order(sortBy, { ascending: order === 'asc' });
@@ -25,7 +36,10 @@ router.get('/', async (req, res) => {
             return res.status(400).json({ error: error.message });
         }
 
-        res.json(data);
+        // Filter sensitive data based on user role
+        const filtered = data.map(p => filterProductForRole(p, req.currentStore.role));
+
+        res.json(filtered);
     } catch (error) {
         console.error('Get products error:', error);
         res.status(500).json({ error: 'Failed to fetch products' });
@@ -33,7 +47,7 @@ router.get('/', async (req, res) => {
 });
 
 // Get single product
-router.get('/:id', async (req, res) => {
+router.get('/:id', authenticate, requireStoreAccess(), async (req, res) => {
     try {
         const { id } = req.params;
 
@@ -41,13 +55,17 @@ router.get('/:id', async (req, res) => {
             .from('products')
             .select('*')
             .eq('id', id)
+            .eq('store_id', req.storeId)
             .single();
 
         if (error) {
             return res.status(404).json({ error: 'Product not found' });
         }
 
-        res.json(data);
+        // Filter sensitive data based on user role
+        const filtered = filterProductForRole(data, req.currentStore.role);
+
+        res.json(filtered);
     } catch (error) {
         console.error('Get product error:', error);
         res.status(500).json({ error: 'Failed to fetch product' });
@@ -55,70 +73,131 @@ router.get('/:id', async (req, res) => {
 });
 
 // Create product (admin/coadmin only)
-router.post('/', authenticate, requireAdmin, async (req, res) => {
-    try {
-        const { name, description, price, stock } = req.body;
+router.post('/',
+    authenticate,
+    requireStoreAccess(['admin', 'coadmin']),
+    injectStoreMetadata,
+    async (req, res) => {
+        try {
+            const {
+                name,
+                sku,
+                description,
+                stock,
+                cost_price,
+                selling_price,
+                low_stock_threshold
+            } = req.body;
 
-        const { data, error } = await supabase
-            .from('products')
-            .insert([{ name, description, price, stock }])
-            .select()
-            .single();
+            if (!name || cost_price === undefined || selling_price === undefined) {
+                return res.status(400).json({
+                    error: 'Name, cost_price, and selling_price are required'
+                });
+            }
 
-        if (error) {
-            return res.status(400).json({ error: error.message });
+            const productData = {
+                store_id: req.storeId,
+                name,
+                sku,
+                description,
+                stock: stock || 0,
+                cost_price,
+                selling_price,
+                low_stock_threshold: low_stock_threshold || 10
+            };
+
+            const { data, error } = await supabase
+                .from('products')
+                .insert([productData])
+                .select()
+                .single();
+
+            if (error) {
+                // Handle unique constraint violation for SKU
+                if (error.code === '23505') {
+                    return res.status(400).json({ error: 'SKU already exists in this store' });
+                }
+                return res.status(400).json({ error: error.message });
+            }
+
+            res.status(201).json(data);
+        } catch (error) {
+            console.error('Create product error:', error);
+            res.status(500).json({ error: 'Failed to create product' });
         }
-
-        res.status(201).json(data);
-    } catch (error) {
-        console.error('Create product error:', error);
-        res.status(500).json({ error: 'Failed to create product' });
-    }
-});
+    });
 
 // Update product (admin/coadmin only)
-router.put('/:id', authenticate, requireAdmin, async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { name, description, price, stock } = req.body;
+router.put('/:id',
+    authenticate,
+    requireStoreAccess(['admin', 'coadmin']),
+    async (req, res) => {
+        try {
+            const { id } = req.params;
+            const {
+                name,
+                sku,
+                description,
+                stock,
+                cost_price,
+                selling_price,
+                low_stock_threshold
+            } = req.body;
 
-        const { data, error } = await supabase
-            .from('products')
-            .update({ name, description, price, stock })
-            .eq('id', id)
-            .select()
-            .single();
+            const updates = {};
+            if (name !== undefined) updates.name = name;
+            if (sku !== undefined) updates.sku = sku;
+            if (description !== undefined) updates.description = description;
+            if (stock !== undefined) updates.stock = stock;
+            if (cost_price !== undefined) updates.cost_price = cost_price;
+            if (selling_price !== undefined) updates.selling_price = selling_price;
+            if (low_stock_threshold !== undefined) updates.low_stock_threshold = low_stock_threshold;
 
-        if (error) {
-            return res.status(400).json({ error: error.message });
+            const { data, error } = await supabase
+                .from('products')
+                .update(updates)
+                .eq('id', id)
+                .eq('store_id', req.storeId)
+                .select()
+                .single();
+
+            if (error) {
+                if (error.code === '23505') {
+                    return res.status(400).json({ error: 'SKU already exists in this store' });
+                }
+                return res.status(400).json({ error: error.message });
+            }
+
+            res.json(data);
+        } catch (error) {
+            console.error('Update product error:', error);
+            res.status(500).json({ error: 'Failed to update product' });
         }
-
-        res.json(data);
-    } catch (error) {
-        console.error('Update product error:', error);
-        res.status(500).json({ error: 'Failed to update product' });
-    }
-});
+    });
 
 // Delete product (admin/coadmin only)
-router.delete('/:id', authenticate, requireAdmin, async (req, res) => {
-    try {
-        const { id } = req.params;
+router.delete('/:id',
+    authenticate,
+    requireStoreAccess(['admin', 'coadmin']),
+    async (req, res) => {
+        try {
+            const { id } = req.params;
 
-        const { error } = await supabase
-            .from('products')
-            .delete()
-            .eq('id', id);
+            const { error } = await supabase
+                .from('products')
+                .delete()
+                .eq('id', id)
+                .eq('store_id', req.storeId);
 
-        if (error) {
-            return res.status(400).json({ error: error.message });
+            if (error) {
+                return res.status(400).json({ error: error.message });
+            }
+
+            res.json({ message: 'Product deleted successfully' });
+        } catch (error) {
+            console.error('Delete product error:', error);
+            res.status(500).json({ error: 'Failed to delete product' });
         }
-
-        res.json({ message: 'Product deleted successfully' });
-    } catch (error) {
-        console.error('Delete product error:', error);
-        res.status(500).json({ error: 'Failed to delete product' });
-    }
-});
+    });
 
 export default router;

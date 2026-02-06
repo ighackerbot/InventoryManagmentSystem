@@ -1,34 +1,34 @@
 import express from 'express';
 import { supabase } from '../config/supabase.js';
-import { authenticate, requireAdmin } from '../middleware/auth.js';
+import { authenticate, requireStoreAccess, injectStoreMetadata } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// Get all purchases (admin/coadmin only)
-router.get('/', authenticate, requireAdmin, async (req, res) => {
+// Get all purchases in a store (admin/coadmin only)
+router.get('/', authenticate, requireStoreAccess(['admin', 'coadmin']), async (req, res) => {
     try {
-        const { startDate, endDate, productId, supplier } = req.query;
+        const { start_date, end_date, product_id, supplier_name } = req.query;
 
         let query = supabase
             .from('purchases')
             .select(`
-        *,
-        product:products(id, name),
-        user:profiles(email)
-      `)
+                *,
+                products (name, sku)
+            `)
+            .eq('store_id', req.storeId)
             .order('created_at', { ascending: false });
 
-        if (startDate) {
-            query = query.gte('created_at', startDate);
+        if (start_date) {
+            query = query.gte('created_at', start_date);
         }
-        if (endDate) {
-            query = query.lte('created_at', endDate);
+        if (end_date) {
+            query = query.lte('created_at', end_date);
         }
-        if (productId) {
-            query = query.eq('product_id', productId);
+        if (product_id) {
+            query = query.eq('product_id', product_id);
         }
-        if (supplier) {
-            query = query.ilike('supplier', `%${supplier}%`);
+        if (supplier_name) {
+            query = query.ilike('supplier_name', `%${supplier_name}%`);
         }
 
         const { data, error } = await query;
@@ -45,65 +45,140 @@ router.get('/', authenticate, requireAdmin, async (req, res) => {
 });
 
 // Create purchase (admin/coadmin only)
-router.post('/', authenticate, requireAdmin, async (req, res) => {
-    try {
-        const { product_id, quantity, unit_price, supplier } = req.body;
-        const user_id = req.user.id;
+router.post('/',
+    authenticate,
+    requireStoreAccess(['admin', 'coadmin']),
+    injectStoreMetadata,
+    async (req, res) => {
+        try {
+            const { product_id, quantity, cost_price, supplier_name } = req.body;
 
-        if (!product_id || !quantity || !unit_price || !supplier) {
-            return res.status(400).json({ error: 'Missing required fields' });
+            if (!product_id || !quantity || !cost_price) {
+                return res.status(400).json({
+                    error: 'Product ID, quantity, and cost price are required'
+                });
+            }
+
+            // Verify product exists in this store
+            const { data: product, error: productError } = await supabase
+                .from('products')
+                .select('id, name')
+                .eq('id', product_id)
+                .eq('store_id', req.storeId)
+                .single();
+
+            if (productError) {
+                return res.status(404).json({ error: 'Product not found in this store' });
+            }
+
+            const total_amount = quantity * cost_price;
+
+            // Create purchase (trigger will auto-update stock)
+            const { data: purchase, error: purchaseError } = await supabase
+                .from('purchases')
+                .insert([{
+                    store_id: req.storeId,
+                    product_id,
+                    quantity,
+                    cost_price,
+                    total_amount,
+                    supplier_name,
+                    created_by: req.user.id
+                }])
+                .select()
+                .single();
+
+            if (purchaseError) {
+                return res.status(400).json({ error: purchaseError.message });
+            }
+
+            res.status(201).json(purchase);
+        } catch (error) {
+            console.error('Create purchase error:', error);
+            res.status(500).json({ error: 'Failed to create purchase' });
         }
+    });
 
-        const total_amount = quantity * unit_price;
+// Update purchase (admin/coadmin only)
+router.put('/:id',
+    authenticate,
+    requireStoreAccess(['admin', 'coadmin']),
+    async (req, res) => {
+        try {
+            const { id } = req.params;
+            const { quantity, cost_price, supplier_name } = req.body;
 
-        // Start a transaction-like operation
-        // First, get current product stock
-        const { data: product, error: productError } = await supabase
-            .from('products')
-            .select('stock')
-            .eq('id', product_id)
-            .single();
+            const updates = {};
+            if (quantity !== undefined) {
+                updates.quantity = quantity;
+                if (cost_price !== undefined) {
+                    updates.total_amount = quantity * cost_price;
+                }
+            }
+            if (cost_price !== undefined) {
+                updates.cost_price = cost_price;
+                if (quantity === undefined) {
+                    // Need to get current quantity
+                    const { data: current } = await supabase
+                        .from('purchases')
+                        .select('quantity')
+                        .eq('id', id)
+                        .single();
+                    if (current) {
+                        updates.total_amount = current.quantity * cost_price;
+                    }
+                }
+            }
+            if (supplier_name !== undefined) updates.supplier_name = supplier_name;
 
-        if (productError) {
-            return res.status(404).json({ error: 'Product not found' });
+            const { data, error } = await supabase
+                .from('purchases')
+                .update(updates)
+                .eq('id', id)
+                .eq('store_id', req.storeId)
+                .select()
+                .single();
+
+            if (error) {
+                return res.status(400).json({ error: error.message });
+            }
+
+            res.json(data);
+        } catch (error) {
+            console.error('Update purchase error:', error);
+            res.status(500).json({ error: 'Failed to update purchase' });
         }
+    });
 
-        // Create purchase record
-        const { data: purchase, error: purchaseError } = await supabase
-            .from('purchases')
-            .insert([{
-                product_id,
-                quantity,
-                unit_price,
-                total_amount,
-                supplier,
-                user_id,
-            }])
-            .select()
-            .single();
+// Delete purchase (admin/coadmin only)
+router.delete('/:id',
+    authenticate,
+    requireStoreAccess(['admin', 'coadmin']),
+    async (req, res) => {
+        try {
+            const { id } = req.params;
 
-        if (purchaseError) {
-            return res.status(400).json({ error: purchaseError.message });
+            // Note: Deleting a purchase does NOT reduce stock automatically
+            // This maintains data integrity
+
+            const { error } = await supabase
+                .from('purchases')
+                .delete()
+                .eq('id', id)
+                .eq('store_id', req.storeId);
+
+            if (error) {
+                return res.status(400).json({ error: error.message });
+            }
+
+            res.json({
+                message: 'Purchase deleted successfully',
+                note: 'Stock was not automatically adjusted. Create a sale if stock needs to be reduced.'
+            });
+        } catch (error) {
+            console.error('Delete purchase error:', error);
+            res.status(500).json({ error: 'Failed to delete purchase' });
         }
-
-        // Update product stock
-        const newStock = product.stock + quantity;
-        const { error: updateError } = await supabase
-            .from('products')
-            .update({ stock: newStock })
-            .eq('id', product_id);
-
-        if (updateError) {
-            // Rollback: delete the purchase if stock update fails
-            await supabase.from('purchases').delete().eq('id', purchase.id);
-            return res.status(400).json({ error: 'Failed to update stock' });
-        }
-
-        res.status(201).json(purchase);
-    } catch (error) {
-        console.error('Create purchase error:', error);
-        res.status(500).json({ error: 'Failed to create purchase' });
-    }
-});
+    });
 
 export default router;
