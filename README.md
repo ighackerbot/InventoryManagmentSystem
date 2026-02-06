@@ -229,4 +229,4 @@ MIT
 ## Author
 
 Built with ❤️ using modern web technologies
-# NEW-INVENTORY-TRACKER-FOR-SGTC
+# INVENTORY-MANAGEMENT_SYSTEM
