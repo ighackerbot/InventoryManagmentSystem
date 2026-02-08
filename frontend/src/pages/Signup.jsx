@@ -6,12 +6,16 @@ import { Button } from '../components/Button';
 import { Card } from '../components/Card';
 
 export const Signup = () => {
+    const [activeTab, setActiveTab] = useState('admin');
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [storeName, setStoreName] = useState('');
-    const [storeType, setStoreType] = useState('shop');
+    const [storeType, setStoreType] = useState('Warehouse & Logistics');
+    const [teamCapacity, setTeamCapacity] = useState('50');
+    const [adminCode, setAdminCode] = useState('');
+    const [adminPin, setAdminPin] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const { signUp } = useAuth();
@@ -33,10 +37,29 @@ export const Signup = () => {
             return setError('Name is required');
         }
 
+        // Role-specific validation
+        if (activeTab === 'admin' && !storeName.trim()) {
+            return setError('Organization name is required for Admin');
+        }
+
+        if ((activeTab === 'coadmin' || activeTab === 'staff') && !adminCode.trim()) {
+            return setError('Admin generated code is required');
+        }
+
         setLoading(true);
 
         try {
-            await signUp(name, email, password, storeName || `${name}'s Store`, storeType);
+            // Pass role information to signUp function
+            await signUp(
+                name,
+                email,
+                password,
+                storeName || `${name}'s Store`,
+                storeType,
+                activeTab, // Pass the selected role
+                adminCode,
+                teamCapacity
+            );
             navigate('/dashboard');
         } catch (err) {
             setError(err.response?.data?.error || err.message || 'Failed to create account');
@@ -45,13 +68,264 @@ export const Signup = () => {
         }
     };
 
+    const renderAdminForm = () => (
+        <>
+            <Input
+                label="Full Name"
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="John Doe"
+                required
+            />
+
+            <Input
+                label="Email Address"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                required
+            />
+
+            <Input
+                label="Password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                required
+            />
+
+            <Input
+                label="Organization Name"
+                type="text"
+                value={storeName}
+                onChange={(e) => setStoreName(e.target.value)}
+                placeholder="My Company"
+                required
+            />
+
+            <div style={{ marginBottom: '1rem' }}>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span>👥</span> Store Type
+                    </span>
+                </label>
+                <select
+                    value={storeType}
+                    onChange={(e) => setStoreType(e.target.value)}
+                    className="form-input"
+                    style={{ width: '100%' }}
+                >
+                    <option value="Warehouse & Logistics">Warehouse & Logistics</option>
+                    <option value="Retail Shop">Retail Shop</option>
+                    <option value="Godown">Godown</option>
+                    <option value="Branch">Branch</option>
+                    <option value="Distribution Center">Distribution Center</option>
+                </select>
+            </div>
+
+            <Input
+                label="Admin PIN"
+                type="text"
+                value={adminPin}
+                onChange={(e) => setAdminPin(e.target.value)}
+                placeholder="Enter secure PIN"
+            />
+
+            <Input
+                label="Team Capacity"
+                type="number"
+                value={teamCapacity}
+                onChange={(e) => setTeamCapacity(e.target.value)}
+                placeholder="50"
+            />
+
+            <Button
+                type="submit"
+                variant="primary"
+                loading={loading}
+                style={{ width: '100%', marginTop: '1rem' }}
+            >
+                Create Organization
+            </Button>
+        </>
+    );
+
+    const renderCoAdminForm = () => (
+        <>
+            <Input
+                label="Full Name"
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="John Doe"
+                required
+            />
+
+            <Input
+                label="Email Address"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                required
+            />
+
+            <Input
+                label="Password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                required
+            />
+
+            <Input
+                label="Confirm Password"
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="••••••••"
+                required
+            />
+
+            <Input
+                label="Admin Generated Code"
+                type="text"
+                value={adminCode}
+                onChange={(e) => setAdminCode(e.target.value)}
+                placeholder="Enter invite code"
+                required
+            />
+
+            <div style={{ marginBottom: '1rem' }}>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span>👥</span> Select Store
+                    </span>
+                </label>
+                <select
+                    value={storeType}
+                    onChange={(e) => setStoreType(e.target.value)}
+                    className="form-input"
+                    style={{ width: '100%' }}
+                >
+                    <option value="Warehouse & Logistics">Warehouse & Logistics</option>
+                    <option value="Retail Shop">Retail Shop</option>
+                    <option value="Godown">Godown</option>
+                </select>
+            </div>
+
+            <Button
+                type="submit"
+                variant="primary"
+                loading={loading}
+                style={{ width: '100%', marginTop: '1rem' }}
+            >
+                Sign Up as Co-Admin
+            </Button>
+        </>
+    );
+
+    const renderStaffForm = () => (
+        <>
+            <Input
+                label="Full Name"
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Floor Soff"
+                required
+            />
+
+            <Input
+                label="Email Address"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="john.doe@email.com"
+                required
+            />
+
+            <Input
+                label="Password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                required
+            />
+
+            <Input
+                label="Confirm Password"
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="••••••••"
+                required
+            />
+
+            <Input
+                label="Admin Generated Code"
+                type="text"
+                value={adminCode}
+                onChange={(e) => setAdminCode(e.target.value)}
+                placeholder="Enter verification code"
+                required
+            />
+
+            <div style={{ marginBottom: '1rem', padding: '0.75rem', background: 'rgba(16, 185, 129, 0.1)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ color: 'var(--color-success)', fontSize: '1.2rem' }}>✓</span>
+                <span style={{ color: 'var(--color-success)', fontWeight: 600, fontSize: '0.9rem' }}>
+                    Code Validated
+                </span>
+            </div>
+
+            <Button
+                type="submit"
+                variant="primary"
+                loading={loading}
+                style={{ width: '100%', marginTop: '1rem' }}
+            >
+                Sign Up as Staff
+            </Button>
+        </>
+    );
+
     return (
         <div className="flex justify-center items-center" style={{ minHeight: '100vh', background: 'var(--gradient-primary)' }}>
-            <Card className="animate-slide-in" style={{ maxWidth: '500px', width: '100%', margin: '2rem' }}>
+            <Card className="animate-slide-in" style={{ maxWidth: '550px', width: '100%', margin: '2rem' }}>
                 <div className="text-center mb-xl">
                     <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>📦</div>
-                    <h2>Create Account</h2>
-                    <p>Join Inventory Management System</p>
+                    <h2>Welcome to InventoryPro</h2>
+                    <p>Choose your role and get started</p>
+                </div>
+
+                {/* Tab Navigation */}
+                <div className="tab-container">
+                    <button
+                        className={`tab ${activeTab === 'admin' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('admin')}
+                        type="button"
+                    >
+                        Admin
+                    </button>
+                    <button
+                        className={`tab ${activeTab === 'coadmin' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('coadmin')}
+                        type="button"
+                    >
+                        Co-Admin
+                    </button>
+                    <button
+                        className={`tab ${activeTab === 'staff' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('staff')}
+                        type="button"
+                    >
+                        Staff
+                    </button>
                 </div>
 
                 {error && (
@@ -61,74 +335,11 @@ export const Signup = () => {
                 )}
 
                 <form onSubmit={handleSubmit}>
-                    <Input
-                        label="Your Name"
-                        type="text"
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                        placeholder="John Doe"
-                        required
-                    />
-
-                    <Input
-                        label="Email"
-                        type="email"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        placeholder="you@example.com"
-                        required
-                    />
-
-                    <Input
-                        label="Password"
-                        type="password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        placeholder="••••••••"
-                        required
-                    />
-
-                    <Input
-                        label="Confirm Password"
-                        type="password"
-                        value={confirmPassword}
-                        onChange={(e) => setConfirmPassword(e.target.value)}
-                        placeholder="••••••••"
-                        required
-                    />
-
-                    <Input
-                        label="Store Name (Optional)"
-                        type="text"
-                        value={storeName}
-                        onChange={(e) => setStoreName(e.target.value)}
-                        placeholder="My Awesome Store"
-                    />
-
-                    <div style={{ marginBottom: '1rem' }}>
-                        <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>
-                            Store Type
-                        </label>
-                        <select
-                            value={storeType}
-                            onChange={(e) => setStoreType(e.target.value)}
-                            className="input"
-                            style={{ width: '100%' }}
-                        >
-                            <option value="shop">Shop</option>
-                            <option value="godown">Godown</option>
-                            <option value="branch">Branch</option>
-                        </select>
+                    <div className="tab-content">
+                        {activeTab === 'admin' && renderAdminForm()}
+                        {activeTab === 'coadmin' && renderCoAdminForm()}
+                        {activeTab === 'staff' && renderStaffForm()}
                     </div>
-
-                    <Button
-                        type="submit"
-                        variant="primary"
-                        loading={loading}
-                        style={{ width: '100%', marginTop: '1rem' }}
-                    >
-                        Create Account
-                    </Button>
                 </form>
 
                 <div className="text-center mt-lg">

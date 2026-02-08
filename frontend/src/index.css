@@ -804,6 +804,56 @@ a:hover {
   margin-bottom: 0.125rem;
 }
 
+/* ==================== TAB STYLES ==================== */
+.tab-container {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-xl);
+  border-bottom: 2px solid var(--color-light-gray);
+  padding-bottom: 0;
+}
+
+.tab {
+  flex: 1;
+  padding: 0.75rem 1.5rem;
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--color-dark-gray);
+  background: transparent;
+  border: none;
+  border-bottom: 3px solid transparent;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  position: relative;
+  margin-bottom: -2px;
+}
+
+.tab:hover {
+  color: var(--color-primary-accent);
+  background: rgba(59, 130, 246, 0.05);
+}
+
+.tab.active {
+  color: var(--color-primary-accent);
+  background: rgba(59, 130, 246, 0.1);
+  border-bottom-color: var(--color-primary-accent);
+}
+
+.tab-content {
+  animation: fadeInTab var(--transition-base);
+}
+
+@keyframes fadeInTab {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* ==================== MOBILE ADJUSTMENTS ==================== */
 @media (max-width: 768px) {
   .sidebar {

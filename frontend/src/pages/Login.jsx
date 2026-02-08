@@ -6,6 +6,7 @@ import { Button } from '../components/Button';
 import { Card } from '../components/Card';
 
 export const Login = () => {
+    const [activeTab, setActiveTab] = useState('admin');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
@@ -19,7 +20,8 @@ export const Login = () => {
         setLoading(true);
 
         try {
-            await signIn(email, password);
+            // Pass role information to signIn if needed for backend differentiation
+            await signIn(email, password, activeTab);
             navigate('/dashboard');
         } catch (err) {
             setError(err.response?.data?.error || err.message || 'Failed to sign in');
@@ -34,7 +36,32 @@ export const Login = () => {
                 <div className="text-center mb-xl">
                     <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>📦</div>
                     <h2>Welcome Back</h2>
-                    <p>Sign in to your Inventory Pro account</p>
+                    <p>Sign in to your InventoryPro account</p>
+                </div>
+
+                {/* Tab Navigation */}
+                <div className="tab-container">
+                    <button
+                        className={`tab ${activeTab === 'admin' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('admin')}
+                        type="button"
+                    >
+                        Admin
+                    </button>
+                    <button
+                        className={`tab ${activeTab === 'coadmin' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('coadmin')}
+                        type="button"
+                    >
+                        Co-Admin
+                    </button>
+                    <button
+                        className={`tab ${activeTab === 'staff' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('staff')}
+                        type="button"
+                    >
+                        Staff
+                    </button>
                 </div>
 
                 {error && (
@@ -44,32 +71,34 @@ export const Login = () => {
                 )}
 
                 <form onSubmit={handleSubmit}>
-                    <Input
-                        label="Email"
-                        type="email"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        placeholder="you@example.com"
-                        required
-                    />
+                    <div className="tab-content">
+                        <Input
+                            label="Email"
+                            type="email"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            placeholder="you@example.com"
+                            required
+                        />
 
-                    <Input
-                        label="Password"
-                        type="password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        placeholder="••••••••"
-                        required
-                    />
+                        <Input
+                            label="Password"
+                            type="password"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            placeholder="••••••••"
+                            required
+                        />
 
-                    <Button
-                        type="submit"
-                        variant="primary"
-                        loading={loading}
-                        style={{ width: '100%', marginTop: '1rem' }}
-                    >
-                        Sign In
-                    </Button>
+                        <Button
+                            type="submit"
+                            variant="primary"
+                            loading={loading}
+                            style={{ width: '100%', marginTop: '1rem' }}
+                        >
+                            Sign In as {activeTab === 'admin' ? 'Admin' : activeTab === 'coadmin' ? 'Co-Admin' : 'Staff'}
+                        </Button>
+                    </div>
                 </form>
 
                 <div className="text-center mt-lg">
