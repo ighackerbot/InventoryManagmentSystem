@@ -11,7 +11,7 @@
   "keywords": [
     "inventory",
     "express",
-    "supabase"
+    "mongodb"
   ],
   "author": "",
   "license": "ISC",

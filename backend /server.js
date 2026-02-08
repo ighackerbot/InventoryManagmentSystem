@@ -6,14 +6,10 @@ import { connectDB } from './config/mongodb.js';
 // Route imports
 import authRoutes from './routes/auth.js';
 import storesRoutes from './routes/stores.js';
-import usersRoutes from './routes/users.js';
 import productsRoutes from './routes/products.js';
 import purchasesRoutes from './routes/purchases.js';
 import salesRoutes from './routes/sales.js';
 import reportsRoutes from './routes/reports.js';
-import exportRoutes from './routes/export.js';
-import auditRoutes from './routes/audit.js';
-import alertsRoutes from './routes/alerts.js';
 
 dotenv.config();
 
@@ -33,10 +29,6 @@ app.use(express.json());
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/stores', storesRoutes);
-app.use('/api/stores', usersRoutes); // User management nested under stores
-app.use('/api/stores', exportRoutes); // Export nested under stores
-app.use('/api/stores', auditRoutes); // Audit logs nested under stores
-app.use('/api/alerts', alertsRoutes);
 app.use('/api/products', productsRoutes);
 app.use('/api/purchases', purchasesRoutes);
 app.use('/api/sales', salesRoutes);
