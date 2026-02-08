@@ -14,13 +14,21 @@ import { Reports } from './pages/Reports';
 
 // Protected Route Component
 const ProtectedRoute = ({ children, adminOnly = false }) => {
-  const { user, profile, loading } = useAuth();
+  const { user, currentStore, loading } = useAuth();
 
   if (loading) return <LoadingSpinner />;
 
   if (!user) return <Navigate to="/login" />;
 
-  if (adminOnly && profile?.role !== 'admin' && profile?.role !== 'coadmin') {
+  // If user exists but has no current store, clear auth and force re-login
+  // This prevents infinite redirect loop between ProtectedRoute and PublicRoute
+  if (!currentStore) {
+    localStorage.clear();
+    return <Navigate to="/login" />;
+  }
+
+  // Check admin access for admin-only routes
+  if (adminOnly && currentStore.role !== 'admin' && currentStore.role !== 'coadmin') {
     return <Navigate to="/dashboard" />;
   }
 

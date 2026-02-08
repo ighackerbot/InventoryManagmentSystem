@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '../utils/supabase';
+import { purchasesAPI, productsAPI } from '../utils/api';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { Input, Select } from '../components/Input';
@@ -12,31 +12,30 @@ export const Purchases = () => {
     const [products, setProducts] = useState([]);
     const [loading, setLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const { user } = useAuth();
+    const { currentStore, isAdmin } = useAuth();
 
     const [formData, setFormData] = useState({
-        product_id: '',
+        productId: '',
         quantity: '',
-        unit_price: '',
-        supplier: '',
+        costPrice: '',
+        supplierName: '',
     });
 
     useEffect(() => {
-        fetchPurchases();
-        fetchProducts();
-    }, []);
+        if (currentStore) {
+            fetchPurchases();
+            fetchProducts();
+        }
+    }, [currentStore]);
 
     const fetchPurchases = async () => {
         try {
-            const { data, error } = await supabase
-                .from('purchases')
-                .select('*, product:products(name)')
-                .order('created_at', { ascending: false });
-
-            if (error) throw error;
-            setPurchases(data || []);
+            setLoading(true);
+            const { data } = await purchasesAPI.getAll({ limit: 100 });
+            setPurchases(data.purchases || []);
         } catch (error) {
             console.error('Error fetching purchases:', error);
+            alert('Failed to fetch purchases: ' + (error.response?.data?.error || error.message));
         } finally {
             setLoading(false);
         }
@@ -44,12 +43,7 @@ export const Purchases = () => {
 
     const fetchProducts = async () => {
         try {
-            const { data, error } = await supabase
-                .from('products')
-                .select('*')
-                .order('name');
-
-            if (error) throw error;
+            const { data } = await productsAPI.getAll();
             setProducts(data || []);
         } catch (error) {
             console.error('Error fetching products:', error);
@@ -57,7 +51,7 @@ export const Purchases = () => {
     };
 
     const handleOpenModal = () => {
-        setFormData({ product_id: '', quantity: '', unit_price: '', supplier: '' });
+        setFormData({ productId: '', quantity: '', costPrice: '', supplierName: '' });
         setIsModalOpen(true);
     };
 
@@ -65,38 +59,49 @@ export const Purchases = () => {
         e.preventDefault();
 
         try {
-            const total_amount = parseFloat(formData.quantity) * parseFloat(formData.unit_price);
-            const selectedProduct = products.find(p => p.id === formData.product_id);
+            const purchaseData = {
+                productId: formData.productId,
+                quantity: parseInt(formData.quantity),
+                costPrice: parseFloat(formData.costPrice),
+                supplierName: formData.supplierName,
+            };
 
-            const { error } = await supabase
-                .from('purchases')
-                .insert([{
-                    product_id: formData.product_id,
-                    quantity: parseInt(formData.quantity),
-                    unit_price: parseFloat(formData.unit_price),
-                    total_amount,
-                    supplier: formData.supplier,
-                    user_id: user.id,
-                }]);
-
-            if (error) throw error;
-
-            // Update product stock
-            await supabase
-                .from('products')
-                .update({ stock: selectedProduct.stock + parseInt(formData.quantity) })
-                .eq('id', formData.product_id);
+            await purchasesAPI.create(purchaseData);
 
             await fetchPurchases();
-            await fetchProducts();
+            await fetchProducts(); // Refresh to get updated stock
             setIsModalOpen(false);
+            setFormData({ productId: '', quantity: '', costPrice: '', supplierName: '' });
         } catch (error) {
             console.error('Error creating purchase:', error);
-            alert('Failed to create purchase: ' + error.message);
+            alert('Failed to create purchase: ' + (error.response?.data?.error || error.message));
         }
     };
 
     if (loading) return <LoadingSpinner />;
+
+    if (!currentStore) {
+        return (
+            <div>
+                <h1>🛒 Purchases</h1>
+                <Card className="text-center">
+                    <p>Please select a store to view purchases</p>
+                </Card>
+            </div>
+        );
+    }
+
+    // Only admin/coadmin can access purchases
+    if (!isAdmin()) {
+        return (
+            <div>
+                <h1>🛒 Purchases</h1>
+                <Card className="text-center">
+                    <p>You don't have permission to view purchases. Contact your administrator.</p>
+                </Card>
+            </div>
+        );
+    }
 
     return (
         <div>
@@ -126,13 +131,17 @@ export const Purchases = () => {
                         </thead>
                         <tbody>
                             {purchases.map((purchase) => (
-                                <tr key={purchase.id}>
-                                    <td data-label="Date">{new Date(purchase.created_at).toLocaleDateString()}</td>
-                                    <td data-label="Product">{purchase.product?.name}</td>
-                                    <td data-label="Supplier">{purchase.supplier}</td>
+                                <tr key={purchase._id}>
+                                    <td data-label="Date">
+                                        {new Date(purchase.createdAt).toLocaleDateString('en-GB')}
+                                    </td>
+                                    <td data-label="Product">{purchase.productId?.name || 'N/A'}</td>
+                                    <td data-label="Supplier">{purchase.supplierName || '-'}</td>
                                     <td data-label="Quantity">{purchase.quantity}</td>
-                                    <td data-label="Unit Price">₹{parseFloat(purchase.unit_price).toFixed(2)}</td>
-                                    <td data-label="Total Amount" style={{ fontWeight: 600 }}>₹{parseFloat(purchase.total_amount).toFixed(2)}</td>
+                                    <td data-label="Unit Price">₹{parseFloat(purchase.costPrice).toFixed(2)}</td>
+                                    <td data-label="Total Amount" style={{ fontWeight: 600 }}>
+                                        ₹{parseFloat(purchase.totalAmount).toFixed(2)}
+                                    </td>
                                 </tr>
                             ))}
                         </tbody>
@@ -148,10 +157,10 @@ export const Purchases = () => {
                 <form onSubmit={handleSubmit}>
                     <Select
                         label="Product"
-                        value={formData.product_id}
-                        onChange={(e) => setFormData({ ...formData, product_id: e.target.value })}
+                        value={formData.productId}
+                        onChange={(e) => setFormData({ ...formData, productId: e.target.value })}
                         options={products.map(p => ({
-                            value: p.id,
+                            value: p._id,
                             label: `${p.name} (Current Stock: ${p.stock})`
                         }))}
                         required
@@ -160,9 +169,9 @@ export const Purchases = () => {
                     <Input
                         label="Supplier Name"
                         type="text"
-                        value={formData.supplier}
-                        onChange={(e) => setFormData({ ...formData, supplier: e.target.value })}
-                        required
+                        value={formData.supplierName}
+                        onChange={(e) => setFormData({ ...formData, supplierName: e.target.value })}
+                        placeholder="Optional"
                     />
 
                     <Input
@@ -175,18 +184,18 @@ export const Purchases = () => {
                     />
 
                     <Input
-                        label="Unit Price"
+                        label="Cost Price (₹)"
                         type="number"
                         step="0.01"
                         min="0"
-                        value={formData.unit_price}
-                        onChange={(e) => setFormData({ ...formData, unit_price: e.target.value })}
+                        value={formData.costPrice}
+                        onChange={(e) => setFormData({ ...formData, costPrice: e.target.value })}
                         required
                     />
 
-                    {formData.quantity && formData.unit_price && (
+                    {formData.quantity && formData.costPrice && (
                         <div className="badge badge-info" style={{ width: '100%', marginBottom: '1rem' }}>
-                            Total Amount: ₹{(parseFloat(formData.quantity) * parseFloat(formData.unit_price)).toFixed(2)}
+                            Total Amount: ₹{(parseFloat(formData.quantity) * parseFloat(formData.costPrice)).toFixed(2)}
                         </div>
                     )}
 
