@@ -6,9 +6,12 @@ import { Button } from '../components/Button';
 import { Card } from '../components/Card';
 
 export const Signup = () => {
+    const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
+    const [storeName, setStoreName] = useState('');
+    const [storeType, setStoreType] = useState('shop');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const { signUp } = useAuth();
@@ -26,13 +29,17 @@ export const Signup = () => {
             return setError('Password must be at least 6 characters');
         }
 
+        if (!name.trim()) {
+            return setError('Name is required');
+        }
+
         setLoading(true);
 
         try {
-            await signUp(email, password);
+            await signUp(name, email, password, storeName || `${name}'s Store`, storeType);
             navigate('/dashboard');
         } catch (err) {
-            setError(err.message || 'Failed to create account');
+            setError(err.response?.data?.error || err.message || 'Failed to create account');
         } finally {
             setLoading(false);
         }
@@ -40,11 +47,11 @@ export const Signup = () => {
 
     return (
         <div className="flex justify-center items-center" style={{ minHeight: '100vh', background: 'var(--gradient-primary)' }}>
-            <Card className="animate-slide-in" style={{ maxWidth: '450px', width: '100%', margin: '2rem' }}>
+            <Card className="animate-slide-in" style={{ maxWidth: '500px', width: '100%', margin: '2rem' }}>
                 <div className="text-center mb-xl">
                     <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>📦</div>
                     <h2>Create Account</h2>
-                    <p>Join Inventory Pro to manage your inventory</p>
+                    <p>Join Inventory Management System</p>
                 </div>
 
                 {error && (
@@ -54,6 +61,15 @@ export const Signup = () => {
                 )}
 
                 <form onSubmit={handleSubmit}>
+                    <Input
+                        label="Your Name"
+                        type="text"
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        placeholder="John Doe"
+                        required
+                    />
+
                     <Input
                         label="Email"
                         type="email"
@@ -80,6 +96,30 @@ export const Signup = () => {
                         placeholder="••••••••"
                         required
                     />
+
+                    <Input
+                        label="Store Name (Optional)"
+                        type="text"
+                        value={storeName}
+                        onChange={(e) => setStoreName(e.target.value)}
+                        placeholder="My Awesome Store"
+                    />
+
+                    <div style={{ marginBottom: '1rem' }}>
+                        <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>
+                            Store Type
+                        </label>
+                        <select
+                            value={storeType}
+                            onChange={(e) => setStoreType(e.target.value)}
+                            className="input"
+                            style={{ width: '100%' }}
+                        >
+                            <option value="shop">Shop</option>
+                            <option value="godown">Godown</option>
+                            <option value="branch">Branch</option>
+                        </select>
+                    </div>
 
                     <Button
                         type="submit"

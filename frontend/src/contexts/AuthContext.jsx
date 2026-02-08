@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react';
-import { supabase } from '../utils/supabase';
+import { authAPI, setCurrentStore, getCurrentStore } from '../utils/api';
 
 const AuthContext = createContext({});
 
@@ -13,113 +13,177 @@ export const useAuth = () => {
 
 export const AuthProvider = ({ children }) => {
     const [user, setUser] = useState(null);
-    const [profile, setProfile] = useState(null);
-    const [session, setSession] = useState(null);
+    const [stores, setStores] = useState([]);
+    const [currentStore, setCurrentStoreState] = useState(null);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        // Get initial session
-        supabase.auth.getSession().then(({ data: { session } }) => {
-            setSession(session);
-            setUser(session?.user ?? null);
-            if (session?.user) {
-                fetchProfile(session.user.id);
-            } else {
-                setLoading(false);
-            }
-        });
+        // Check if user is already logged in
+        const token = localStorage.getItem('token');
+        const savedUser = localStorage.getItem('user');
+        const savedStores = localStorage.getItem('stores');
+        const currentStoreId = getCurrentStore();
 
-        // Listen for auth changes
-        const {
-            data: { subscription },
-        } = supabase.auth.onAuthStateChange((_event, session) => {
-            setSession(session);
-            setUser(session?.user ?? null);
-            if (session?.user) {
-                fetchProfile(session.user.id);
-            } else {
-                setProfile(null);
-                setLoading(false);
-            }
-        });
+        if (token && savedUser) {
+            const parsedUser = JSON.parse(savedUser);
+            const parsedStores = savedStores ? JSON.parse(savedStores) : [];
 
-        return () => subscription.unsubscribe();
+            setUser(parsedUser);
+            setStores(parsedStores);
+
+            // Set current store if exists
+            if (currentStoreId && parsedStores.length > 0) {
+                const store = parsedStores.find(s => s.id === currentStoreId);
+                setCurrentStoreState(store || parsedStores[0]);
+            } else if (parsedStores.length > 0) {
+                // Auto-select first store
+                setCurrentStoreState(parsedStores[0]);
+                setCurrentStore(parsedStores[0].id);
+            }
+        }
+
+        setLoading(false);
     }, []);
 
-    const fetchProfile = async (userId) => {
+    const signUp = async (name, email, password, storeName, storeType) => {
         try {
-            const { data, error } = await supabase
-                .from('profiles')
-                .select('*')
-                .eq('id', userId)
-                .single();
+            const { data } = await authAPI.signup({
+                name,
+                email,
+                password,
+                storeName,
+                storeType
+            });
 
-            if (error) throw error;
-            setProfile(data);
+            // Save to localStorage
+            localStorage.setItem('token', data.token);
+            localStorage.setItem('user', JSON.stringify(data.user));
+
+            // Save store info
+            const userStores = [data.store];
+            localStorage.setItem('stores', JSON.stringify(userStores));
+
+            // Set current store
+            setCurrentStore(data.store.id);
+
+            // Update state
+            setUser(data.user);
+            setStores(userStores);
+            setCurrentStoreState(data.store);
+
+            return data;
         } catch (error) {
-            console.error('Error fetching profile:', error);
-        } finally {
-            setLoading(false);
+            console.error('Signup error:', error);
+            throw error;
         }
-    };
-
-    const signUp = async (email, password) => {
-        const { data, error } = await supabase.auth.signUp({
-            email,
-            password,
-        });
-
-        if (error) throw error;
-
-        // Create profile
-        if (data.user) {
-            await supabase.from('profiles').insert([
-                {
-                    id: data.user.id,
-                    email,
-                    role: 'staff',
-                },
-            ]);
-        }
-
-        return data;
     };
 
     const signIn = async (email, password) => {
-        const { data, error } = await supabase.auth.signInWithPassword({
-            email,
-            password,
-        });
+        try {
+            const { data } = await authAPI.signin({ email, password });
 
-        if (error) throw error;
-        return data;
+            // Save to localStorage
+            localStorage.setItem('token', data.token);
+            localStorage.setItem('user', JSON.stringify(data.user));
+            localStorage.setItem('stores', JSON.stringify(data.stores));
+
+            // Set current store (first store by default)
+            if (data.stores && data.stores.length > 0) {
+                setCurrentStore(data.stores[0].id);
+                setCurrentStoreState(data.stores[0]);
+            }
+
+            // Update state
+            setUser(data.user);
+            setStores(data.stores || []);
+
+            return data;
+        } catch (error) {
+            console.error('Signin error:', error);
+            throw error;
+        }
+    };
+
+    const staffLogin = async (email, password) => {
+        try {
+            const { data } = await authAPI.staffLogin({ email, password });
+
+            // Save to localStorage
+            localStorage.setItem('token', data.token);
+            localStorage.setItem('user', JSON.stringify(data.user));
+            localStorage.setItem('stores', JSON.stringify(data.stores));
+
+            // Set current store (first store by default)
+            if (data.stores && data.stores.length > 0) {
+                setCurrentStore(data.stores[0].id);
+                setCurrentStoreState(data.stores[0]);
+            }
+
+            // Update state
+            setUser(data.user);
+            setStores(data.stores || []);
+
+            return data;
+        } catch (error) {
+            console.error('Staff login error:', error);
+            throw error;
+        }
     };
 
     const signOut = async () => {
-        const { error } = await supabase.auth.signOut();
-        if (error) throw error;
-        setUser(null);
-        setProfile(null);
-        setSession(null);
+        try {
+            await authAPI.signout();
+        } catch (error) {
+            console.error('Signout error:', error);
+        } finally {
+            // Clear localStorage
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            localStorage.removeItem('stores');
+            localStorage.removeItem('currentStoreId');
+
+            // Clear state
+            setUser(null);
+            setStores([]);
+            setCurrentStoreState(null);
+        }
+    };
+
+    const switchStore = (storeId) => {
+        const store = stores.find(s => s.id === storeId);
+        if (store) {
+            setCurrentStore(storeId);
+            setCurrentStoreState(store);
+        }
     };
 
     const isAdmin = () => {
-        return profile?.role === 'admin' || profile?.role === 'coadmin';
+        if (!currentStore) return false;
+        return currentStore.role === 'admin' || currentStore.role === 'coadmin';
+    };
+
+    const isStaff = () => {
+        if (!currentStore) return false;
+        return currentStore.role === 'staff';
     };
 
     const hasRole = (roles) => {
-        return roles.includes(profile?.role);
+        if (!currentStore) return false;
+        return roles.includes(currentStore.role);
     };
 
     const value = {
         user,
-        profile,
-        session,
+        stores,
+        currentStore,
         loading,
         signUp,
         signIn,
+        staffLogin,
         signOut,
+        switchStore,
         isAdmin,
+        isStaff,
         hasRole,
     };
 

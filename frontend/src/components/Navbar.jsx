@@ -1,8 +1,9 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import StoreSwitcher from './StoreSwitcher';
 
 export const Navbar = () => {
-    const { user, profile, signOut } = useAuth();
+    const { user, currentStore, signOut } = useAuth();
     const navigate = useNavigate();
 
     const handleSignOut = async () => {
@@ -18,17 +19,23 @@ export const Navbar = () => {
         <nav className="navbar">
             <div className="container navbar-content">
                 <Link to="/" className="navbar-brand">
-                    📦 Inventory Management System
+                    📦 Inventory Management
                 </Link>
 
                 {user && (
                     <div className="flex items-center gap-lg">
+                        <StoreSwitcher />
+
                         <span className="text-white opacity-90 font-medium">
-                            Welcome, {profile?.full_name || user.user_metadata?.full_name || user.email?.split('@')[0]}
+                            {user.name || user.email?.split('@')[0]}
                         </span>
-                        <span className="badge badge-info">
-                            {profile?.role?.toUpperCase() || 'USER'}
-                        </span>
+
+                        {currentStore && (
+                            <span className="badge badge-info">
+                                {currentStore.role?.toUpperCase()}
+                            </span>
+                        )}
+
                         <button onClick={handleSignOut} className="btn btn-sm btn-secondary">
                             Sign Out
                         </button>
