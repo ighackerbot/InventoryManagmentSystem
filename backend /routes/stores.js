@@ -1,14 +1,20 @@
 import express from 'express';
-import { supabase } from '../config/supabase.js';
+import Store from '../models/Store.js';
+import UserStoreRole from '../models/UserStoreRole.js';
 import { authenticate, requireStoreAccess, requireOwnerOrAdmin } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// Get all stores accessible to the user
+/**
+ * GET /api/stores
+ * Get all stores accessible to the user
+ */
 router.get('/', authenticate, async (req, res) => {
     try {
+        // req.userStores is populated by authenticate middleware
         const stores = req.userStores.map(us => ({
             ...us.stores,
+            _id: us.store_id,
             user_role: us.role
         }));
 
@@ -19,46 +25,38 @@ router.get('/', authenticate, async (req, res) => {
     }
 });
 
-// Create a new store
+/**
+ * POST /api/stores
+ * Create a new store
+ */
 router.post('/', authenticate, async (req, res) => {
     try {
-        const { name, type, address, currency, tax_percent } = req.body;
+        const { name, type, address, currency, taxPercent } = req.body;
 
         if (!name || !type) {
             return res.status(400).json({ error: 'Name and type are required' });
         }
 
         // Create store
-        const { data: store, error: storeError } = await supabase
-            .from('stores')
-            .insert([{
-                name,
-                type,
-                address,
-                currency: currency || 'INR',
-                tax_percent: tax_percent || 0,
-                owner_id: req.user.id
-            }])
-            .select()
-            .single();
+        const store = new Store({
+            name,
+            type,
+            address,
+            currency: currency || 'INR',
+            taxPercent: taxPercent || 0,
+            ownerId: req.user.id
+        });
 
-        if (storeError) {
-            return res.status(400).json({ error: storeError.message });
-        }
+        await store.save();
 
         // Assign creator as admin
-        const { error: roleError } = await supabase
-            .from('user_store_roles')
-            .insert([{
-                user_id: req.user.id,
-                store_id: store.id,
-                role: 'admin'
-            }]);
+        const userStoreRole = new UserStoreRole({
+            userId: req.user.id,
+            storeId: store._id,
+            role: 'admin'
+        });
 
-        if (roleError) {
-            console.error('Role assignment error:', roleError);
-            // Don't fail the request, store was created successfully
-        }
+        await userStoreRole.save();
 
         res.status(201).json(store);
     } catch (error) {
@@ -67,16 +65,15 @@ router.post('/', authenticate, async (req, res) => {
     }
 });
 
-// Get single store details
+/**
+ * GET /api/stores/:storeId
+ * Get single store details
+ */
 router.get('/:storeId', authenticate, requireStoreAccess(), async (req, res) => {
     try {
-        const { data: store, error } = await supabase
-            .from('stores')
-            .select('*')
-            .eq('id', req.storeId)
-            .single();
+        const store = await Store.findById(req.storeId).lean();
 
-        if (error) {
+        if (!store) {
             return res.status(404).json({ error: 'Store not found' });
         }
 
@@ -90,27 +87,29 @@ router.get('/:storeId', authenticate, requireStoreAccess(), async (req, res) => 
     }
 });
 
-// Update store settings (admin only)
+/**
+ * PUT /api/stores/:storeId
+ * Update store settings (admin only)
+ */
 router.put('/:storeId', authenticate, requireStoreAccess(['admin']), async (req, res) => {
     try {
-        const { name, type, address, currency, tax_percent } = req.body;
+        const { name, type, address, currency, taxPercent } = req.body;
 
         const updates = {};
         if (name !== undefined) updates.name = name;
         if (type !== undefined) updates.type = type;
         if (address !== undefined) updates.address = address;
         if (currency !== undefined) updates.currency = currency;
-        if (tax_percent !== undefined) updates.tax_percent = tax_percent;
+        if (taxPercent !== undefined) updates.taxPercent = taxPercent;
 
-        const { data: store, error } = await supabase
-            .from('stores')
-            .update(updates)
-            .eq('id', req.storeId)
-            .select()
-            .single();
+        const store = await Store.findByIdAndUpdate(
+            req.storeId,
+            updates,
+            { new: true, runValidators: true }
+        );
 
-        if (error) {
-            return res.status(400).json({ error: error.message });
+        if (!store) {
+            return res.status(404).json({ error: 'Store not found' });
         }
 
         res.json(store);
@@ -120,28 +119,29 @@ router.put('/:storeId', authenticate, requireStoreAccess(['admin']), async (req,
     }
 });
 
-// Delete store (owner only)
+/**
+ * DELETE /api/stores/:storeId
+ * Delete store (owner only)
+ */
 router.delete('/:storeId', authenticate, requireOwnerOrAdmin, async (req, res) => {
     try {
-        // Check if user is the owner
-        const { data: store } = await supabase
-            .from('stores')
-            .select('owner_id')
-            .eq('id', req.storeId)
-            .single();
+        // requireOwnerOrAdmin already validated ownership
+        const store = await Store.findById(req.storeId);
 
-        if (store.owner_id !== req.user.id) {
+        if (!store) {
+            return res.status(404).json({ error: 'Store not found' });
+        }
+
+        // Check if user is the owner
+        if (store.ownerId.toString() !== req.user.id.toString()) {
             return res.status(403).json({ error: 'Only store owner can delete the store' });
         }
 
-        const { error } = await supabase
-            .from('stores')
-            .delete()
-            .eq('id', req.storeId);
+        // Delete store (cascade will handle related data via MongoDB)
+        await Store.findByIdAndDelete(req.storeId);
 
-        if (error) {
-            return res.status(400).json({ error: error.message });
-        }
+        // Also delete all user-store-role mappings
+        await UserStoreRole.deleteMany({ storeId: req.storeId });
 
         res.json({ message: 'Store deleted successfully' });
     } catch (error) {

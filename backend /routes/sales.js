@@ -1,214 +1,220 @@
 import express from 'express';
-import { supabase } from '../config/supabase.js';
+import mongoose from 'mongoose';
+import Sale from '../models/Sale.js';
+import Product from '../models/Product.js';
 import { authenticate, requireStoreAccess, injectStoreMetadata } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// Helper to filter sale data based on role
+/**
+ * Helper to filter sensitive fields for staff
+ */
 const filterSaleForRole = (sale, role) => {
-    if (role === 'staff') {
-        // Staff cannot see cost-related fields or profit calculations
-        const { cost_price, ...filtered } = sale;
-        return filtered;
+    const saleObj = sale.toObject ? sale.toObject() : sale;
+    if (role === 'staff' && saleObj.product) {
+        // Remove cost_price from populated product
+        const { costPrice, ...productFiltered } = saleObj.product;
+        return { ...saleObj, product: productFiltered };
     }
-    return sale;
+    return saleObj;
 };
 
-// Get all sales in a store
+/**
+ * GET /api/sales
+ * Get all sales for a store
+ * Requires: x-store-id header
+ */
 router.get('/', authenticate, requireStoreAccess(), async (req, res) => {
     try {
-        const { start_date, end_date, product_id, customer_name } = req.query;
+        const { limit = 50, skip = 0, sortBy = 'createdAt', order = 'desc' } = req.query;
 
-        let query = supabase
-            .from('sales')
-            .select(`
-                *,
-                products (name, sku, cost_price)
-            `)
-            .eq('store_id', req.storeId)
-            .order('created_at', { ascending: false });
+        // MUST filter by storeId
+        const query = Sale.find({ storeId: req.storeId })
+            .populate('productId', 'name sku costPrice sellingPrice')
+            .populate('createdBy', 'name email')
+            .limit(parseInt(limit))
+            .skip(parseInt(skip))
+            .sort({ [sortBy]: order === 'desc' ? -1 : 1 });
 
-        if (start_date) {
-            query = query.gte('created_at', start_date);
-        }
-        if (end_date) {
-            query = query.lte('created_at', end_date);
-        }
-        if (product_id) {
-            query = query.eq('product_id', product_id);
-        }
-        if (customer_name) {
-            query = query.ilike('customer_name', `%${customer_name}%`);
-        }
+        const sales = await query.lean();
 
-        const { data, error } = await query;
+        // Filter for staff role
+        const filtered = sales.map(s => filterSaleForRole(s, req.currentStore.role));
 
-        if (error) {
-            return res.status(400).json({ error: error.message });
-        }
+        // Get total count
+        const total = await Sale.countDocuments({ storeId: req.storeId });
 
-        // Add profit calculation and filter based on role
-        const enrichedData = data.map(sale => {
-            const saleWithProfit = {
-                ...sale,
-                profit: sale.products?.cost_price
-                    ? (sale.selling_price - sale.products.cost_price) * sale.quantity
-                    : null
-            };
-            return filterSaleForRole(saleWithProfit, req.currentStore.role);
+        res.json({
+            sales: filtered,
+            total,
+            limit: parseInt(limit),
+            skip: parseInt(skip)
         });
-
-        res.json(enrichedData);
     } catch (error) {
         console.error('Get sales error:', error);
         res.status(500).json({ error: 'Failed to fetch sales' });
     }
 });
 
-// Create sale (all authenticated store members)
+/**
+ * GET /api/sales/:id
+ * Get single sale
+ * Requires: x-store-id header
+ */
+router.get('/:id', authenticate, requireStoreAccess(), async (req, res) => {
+    try {
+        const sale = await Sale.findOne({
+            _id: req.params.id,
+            storeId: req.storeId
+        })
+            .populate('productId', 'name sku costPrice sellingPrice')
+            .populate('createdBy', 'name email');
+
+        if (!sale) {
+            return res.status(404).json({ error: 'Sale not found' });
+        }
+
+        const filtered = filterSaleForRole(sale, req.currentStore.role);
+        res.json(filtered);
+    } catch (error) {
+        console.error('Get sale error:', error);
+        res.status(500).json({ error: 'Failed to fetch sale' });
+    }
+});
+
+/**
+ * POST /api/sales
+ * Create a new sale (with MongoDB transaction for stock update)
+ * Requires: x-store-id header
+ */
 router.post('/',
     authenticate,
     requireStoreAccess(),
     injectStoreMetadata,
     async (req, res) => {
-        try {
-            const { product_id, quantity, selling_price, customer_name } = req.body;
+        const session = await mongoose.startSession();
+        session.startTransaction();
 
-            if (!product_id || !quantity || !selling_price) {
+        try {
+            const {
+                productId,
+                quantity,
+                sellingPrice,
+                customerName
+            } = req.body;
+
+            if (!productId || !quantity || sellingPrice === undefined) {
+                await session.abortTransaction();
                 return res.status(400).json({
                     error: 'Product ID, quantity, and selling price are required'
                 });
             }
 
-            // Get product to verify stock and get pricing
-            const { data: product, error: productError } = await supabase
-                .from('products')
-                .select('stock, selling_price, name')
-                .eq('id', product_id)
-                .eq('store_id', req.storeId)
-                .single();
+            if (quantity <= 0) {
+                await session.abortTransaction();
+                return res.status(400).json({ error: 'Quantity must be greater than 0' });
+            }
 
-            if (productError) {
+            // 1. Check product exists and has sufficient stock (within transaction)
+            const product = await Product.findOne({
+                _id: productId,
+                storeId: req.storeId
+            }).session(session);
+
+            if (!product) {
+                await session.abortTransaction();
                 return res.status(404).json({ error: 'Product not found in this store' });
             }
 
-            // Check stock availability (trigger will also check, but this gives better error message)
             if (product.stock < quantity) {
+                await session.abortTransaction();
                 return res.status(400).json({
-                    error: 'Insufficient stock',
-                    available: product.stock,
-                    requested: quantity
+                    error: `Insufficient stock. Available: ${product.stock}, Requested: ${quantity}`
                 });
             }
 
-            const total_amount = quantity * selling_price;
+            // 2. Create sale (within transaction)
+            const saleData = {
+                storeId: req.storeId,
+                productId,
+                quantity,
+                sellingPrice,
+                totalAmount: quantity * sellingPrice,
+                customerName,
+                createdBy: req.user.id
+            };
 
-            // Create sale (trigger will auto-update stock)
-            const { data: sale, error: saleError } = await supabase
-                .from('sales')
-                .insert([{
-                    store_id: req.storeId,
-                    product_id,
-                    quantity,
-                    selling_price,
-                    total_amount,
-                    customer_name,
-                    created_by: req.user.id
-                }])
-                .select()
-                .single();
+            const sale = await Sale.create([saleData], { session });
 
-            if (saleError) {
-                return res.status(400).json({ error: saleError.message });
-            }
+            // 3. Update product stock (within transaction)
+            await Product.findByIdAndUpdate(
+                productId,
+                { $inc: { stock: -quantity } },
+                { session, runValidators: true }
+            );
 
-            res.status(201).json(sale);
+            // Commit transaction
+            await session.commitTransaction();
+
+            // Populate and return
+            const populatedSale = await Sale.findById(sale[0]._id)
+                .populate('productId', 'name sku')
+                .populate('createdBy', 'name email');
+
+            res.status(201).json(populatedSale);
+
         } catch (error) {
+            await session.abortTransaction();
             console.error('Create sale error:', error);
             res.status(500).json({ error: 'Failed to create sale' });
+        } finally {
+            session.endSession();
         }
     });
 
-// Update sale (admin/coadmin only)
-router.put('/:id',
-    authenticate,
-    requireStoreAccess(['admin', 'coadmin']),
-    async (req, res) => {
-        try {
-            const { id } = req.params;
-            const { quantity, selling_price, customer_name } = req.body;
-
-            const updates = {};
-            if (quantity !== undefined) {
-                updates.quantity = quantity;
-                if (selling_price !== undefined) {
-                    updates.total_amount = quantity * selling_price;
-                }
-            }
-            if (selling_price !== undefined) {
-                updates.selling_price = selling_price;
-                if (quantity === undefined) {
-                    // Need to get current quantity
-                    const { data: current } = await supabase
-                        .from('sales')
-                        .select('quantity')
-                        .eq('id', id)
-                        .single();
-                    if (current) {
-                        updates.total_amount = current.quantity * selling_price;
-                    }
-                }
-            }
-            if (customer_name !== undefined) updates.customer_name = customer_name;
-
-            const { data, error } = await supabase
-                .from('sales')
-                .update(updates)
-                .eq('id', id)
-                .eq('store_id', req.storeId)
-                .select()
-                .single();
-
-            if (error) {
-                return res.status(400).json({ error: error.message });
-            }
-
-            res.json(data);
-        } catch (error) {
-            console.error('Update sale error:', error);
-            res.status(500).json({ error: 'Failed to update sale' });
-        }
-    });
-
-// Delete sale (admin/coadmin only)
+/**
+ * DELETE /api/sales/:id
+ * Delete sale and restore stock (admin/coadmin only)
+ * Requires: x-store-id header
+ */
 router.delete('/:id',
     authenticate,
     requireStoreAccess(['admin', 'coadmin']),
     async (req, res) => {
+        const session = await mongoose.startSession();
+        session.startTransaction();
+
         try {
-            const { id } = req.params;
+            // Find sale
+            const sale = await Sale.findOne({
+                _id: req.params.id,
+                storeId: req.storeId
+            }).session(session);
 
-            // Note: Deleting a sale does NOT restore stock automatically
-            // This is intentional to maintain data integrity
-            // If you want to restore stock, you would need to create a return/refund endpoint
-
-            const { error } = await supabase
-                .from('sales')
-                .delete()
-                .eq('id', id)
-                .eq('store_id', req.storeId);
-
-            if (error) {
-                return res.status(400).json({ error: error.message });
+            if (!sale) {
+                await session.abortTransaction();
+                return res.status(404).json({ error: 'Sale not found' });
             }
 
-            res.json({
-                message: 'Sale deleted successfully',
-                note: 'Stock was not automatically restored. Create a purchase if stock needs adjustment.'
-            });
+            // Restore stock
+            await Product.findByIdAndUpdate(
+                sale.productId,
+                { $inc: { stock: sale.quantity } },
+                { session }
+            );
+
+            // Delete sale
+            await Sale.findByIdAndDelete(sale._id).session(session);
+
+            await session.commitTransaction();
+            res.json({ message: 'Sale deleted and stock restored successfully' });
+
         } catch (error) {
+            await session.abortTransaction();
             console.error('Delete sale error:', error);
             res.status(500).json({ error: 'Failed to delete sale' });
+        } finally {
+            session.endSession();
         }
     });
 

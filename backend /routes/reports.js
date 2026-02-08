@@ -1,80 +1,58 @@
 import express from 'express';
-import { createClient } from '@supabase/supabase-js';
-import { supabase } from '../config/supabase.js';
-import { authenticate } from '../middleware/auth.js';
+import Product from '../models/Product.js';
+import Sale from '../models/Sale.js';
+import Purchase from '../models/Purchase.js';
+import { authenticate, requireStoreAccess } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// Helper to get authenticated client
-const getSupabase = (req) => {
-    return createClient(
-        process.env.SUPABASE_URL,
-        process.env.SUPABASE_ANON_KEY,
-        {
-            global: {
-                headers: {
-                    Authorization: req.headers.authorization
-                }
-            }
-        }
-    );
-};
-
-// Get dashboard stats
-router.get('/', authenticate, async (req, res) => {
+/**
+ * GET /api/reports
+ * Get dashboard stats for a store
+ * Requires: x-store-id header
+ */
+router.get('/', authenticate, requireStoreAccess(), async (req, res) => {
     try {
-        const authClient = getSupabase(req);
-        // Use global client for products as we know it works publicly
-        // Use auth client for sales/purchases to respect RLS
+        // All queries MUST filter by storeId
+        const storeId = req.storeId;
 
-        console.log('--- Reports Request Diagnostic ---');
-        console.log('Auth Header:', req.headers.authorization ? 'Present' : 'Missing');
-        console.log('Supabase URL:', process.env.SUPABASE_URL);
+        // 1. Calculate total stock
+        const stockAgg = await Product.aggregate([
+            { $match: { storeId: storeId } },
+            { $group: { _id: null, current_stock: { $sum: '$stock' } } }
+        ]);
+        const current_stock = stockAgg[0]?.current_stock || 0;
 
-        // 1. Fetch Products (Global)
-        const { data: products, error: productsError } = await supabase
-            .from('products')
-            .select('stock');
+        // 2. Calculate total sales
+        const salesAgg = await Sale.aggregate([
+            { $match: { storeId: storeId } },
+            { $group: { _id: null, total_sales: { $sum: '$totalAmount' } } }
+        ]);
+        const total_sales = salesAgg[0]?.total_sales || 0;
 
-        console.log('Products (Global):', products?.length, 'Error:', productsError?.message);
+        // 3. Calculate total purchases
+        const purchasesAgg = await Purchase.aggregate([
+            { $match: { storeId: storeId } },
+            { $group: { _id: null, total_purchases: { $sum: '$totalAmount' } } }
+        ]);
+        const total_purchases = purchasesAgg[0]?.total_purchases || 0;
 
-        if (productsError) throw productsError;
+        // 4. Recent Sales
+        const recent_sales = await Sale.find({ storeId })
+            .populate('productId', 'name')
+            .populate('createdBy', 'name')
+            .sort({ createdAt: -1 })
+            .limit(5)
+            .lean();
 
-        // 2. Fetch Sales (Global)
-        const { data: sales, error: salesError } = await supabase
-            .from('sales')
-            .select('total_amount');
+        // 5. Recent Purchases
+        const recent_purchases = await Purchase.find({ storeId })
+            .populate('productId', 'name')
+            .populate('createdBy', 'name')
+            .sort({ createdAt: -1 })
+            .limit(5)
+            .lean();
 
-        console.log('Sales (Global):', sales?.length, 'Error:', salesError?.message);
-
-        if (salesError) throw salesError;
-
-        // 3. Fetch Purchases (Global)
-        const { data: purchases, error: purchasesError } = await supabase
-            .from('purchases')
-            .select('total_amount');
-
-        console.log('Purchases (Global):', purchases?.length, 'Error:', purchasesError?.message);
-
-        if (purchasesError) throw purchasesError;
-
-        // 4. Recent Activity (Global)
-        const { data: recent_sales, error: recentSalesError } = await supabase
-            .from('sales')
-            .select('*, product:products(name)')
-            .order('created_at', { ascending: false })
-            .limit(5);
-
-        const { data: recent_purchases, error: recentPurchasesError } = await supabase
-            .from('purchases')
-            .select('*, product:products(name)')
-            .order('created_at', { ascending: false })
-            .limit(5);
-
-        // Calculate totals
-        const total_sales = sales.reduce((sum, sale) => sum + (sale.total_amount || 0), 0);
-        const total_purchases = purchases.reduce((sum, purchase) => sum + (purchase.total_amount || 0), 0);
-        const current_stock = products.reduce((sum, product) => sum + (product.stock || 0), 0);
         const net_revenue = total_sales - total_purchases;
 
         res.json({
@@ -92,63 +70,71 @@ router.get('/', authenticate, async (req, res) => {
     }
 });
 
-// Get detailed product stats for reports
-router.get('/stats', authenticate, async (req, res) => {
+/**
+ * GET /api/reports/stats
+ * Get detailed product stats for reports
+ * Requires: x-store-id header (admin/coadmin only)
+ */
+router.get('/stats', authenticate, requireStoreAccess(['admin', 'coadmin']), async (req, res) => {
     try {
-        const authClient = getSupabase(req);
+        const storeId = req.storeId;
 
-        console.log('--- Stats Request Diagnostic ---');
+        // Get products with sales and purchase aggregations
+        const stats = await Product.aggregate([
+            // Match products in this store
+            { $match: { storeId: storeId } },
 
-        // 1. Fetch Products (Global)
-        const { data: products, error: productsError } = await supabase
-            .from('products')
-            .select('*');
+            // Left join with sales
+            {
+                $lookup: {
+                    from: 'sales',
+                    localField: '_id',
+                    foreignField: 'productId',
+                    as: 'sales'
+                }
+            },
 
-        console.log('Stats Products (Global):', products?.length);
+            // Left join with purchases
+            {
+                $lookup: {
+                    from: 'purchases',
+                    localField: '_id',
+                    foreignField: 'productId',
+                    as: 'purchases'
+                }
+            },
 
-        if (productsError) throw productsError;
+            // Calculate aggregated stats
+            {
+                $addFields: {
+                    total_sold: { $sum: '$sales.quantity' },
+                    revenue: { $sum: '$sales.totalAmount' },
+                    total_purchased: { $sum: '$purchases.quantity' },
+                    cost: { $sum: '$purchases.totalAmount' },
+                }
+            },
 
-        // 2. Fetch Sales (Global)
-        const { data: sales, error: salesError } = await supabase
-            .from('sales')
-            .select('product_id, quantity, total_amount');
+            // Calculate profit/loss
+            {
+                $addFields: {
+                    profit_loss: { $subtract: ['$revenue', '$cost'] }
+                }
+            },
 
-        console.log('Stats Sales (Global):', sales?.length);
-
-        if (salesError) throw salesError;
-
-        // 3. Fetch Purchases (Global)
-        const { data: purchases, error: purchasesError } = await supabase
-            .from('purchases')
-            .select('product_id, quantity, total_amount');
-
-        console.log('Stats Purchases (Global):', purchases?.length);
-
-        if (purchasesError) throw purchasesError;
-
-        // Process stats per product
-        const stats = products.map(product => {
-            // Filter sales/purchases for this product
-            const productSales = sales.filter(s => s.product_id === product.id);
-            const productPurchases = purchases.filter(p => p.product_id === product.id);
-
-            const total_sold = productSales.reduce((sum, s) => sum + s.quantity, 0);
-            const revenue = productSales.reduce((sum, s) => sum + s.total_amount, 0);
-
-            const total_purchased = productPurchases.reduce((sum, p) => sum + p.quantity, 0);
-            const cost = productPurchases.reduce((sum, p) => sum + p.total_amount, 0);
-
-            return {
-                id: product.id,
-                name: product.name,
-                stock: product.stock,
-                total_sold,
-                total_purchased,
-                revenue,
-                cost,
-                profit_loss: revenue - cost
-            };
-        });
+            // Project only needed fields
+            {
+                $project: {
+                    _id: 1,
+                    name: 1,
+                    stock: 1,
+                    total_sold: 1,
+                    total_purchased: 1,
+                    revenue: 1,
+                    cost: 1,
+                    profit_loss: 1
+                }
+            }
+        ]);
 
         res.json(stats);
     } catch (error) {

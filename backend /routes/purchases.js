@@ -1,183 +1,210 @@
 import express from 'express';
-import { supabase } from '../config/supabase.js';
+import mongoose from 'mongoose';
+import Purchase from '../models/Purchase.js';
+import Product from '../models/Product.js';
 import { authenticate, requireStoreAccess, injectStoreMetadata } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// Get all purchases in a store (admin/coadmin only)
+/**
+ * GET /api/purchases
+ * Get all purchases for a store (admin/coadmin only)
+ * Requires: x-store-id header
+ */
 router.get('/', authenticate, requireStoreAccess(['admin', 'coadmin']), async (req, res) => {
     try {
-        const { start_date, end_date, product_id, supplier_name } = req.query;
+        const { limit = 50, skip = 0, sortBy = 'createdAt', order = 'desc' } = req.query;
 
-        let query = supabase
-            .from('purchases')
-            .select(`
-                *,
-                products (name, sku)
-            `)
-            .eq('store_id', req.storeId)
-            .order('created_at', { ascending: false });
+        // MUST filter by storeId
+        const query = Purchase.find({ storeId: req.storeId })
+            .populate('productId', 'name sku costPrice')
+            .populate('createdBy', 'name email')
+            .limit(parseInt(limit))
+            .skip(parseInt(skip))
+            .sort({ [sortBy]: order === 'desc' ? -1 : 1 });
 
-        if (start_date) {
-            query = query.gte('created_at', start_date);
-        }
-        if (end_date) {
-            query = query.lte('created_at', end_date);
-        }
-        if (product_id) {
-            query = query.eq('product_id', product_id);
-        }
-        if (supplier_name) {
-            query = query.ilike('supplier_name', `%${supplier_name}%`);
-        }
+        const purchases = await query.lean();
 
-        const { data, error } = await query;
+        // Get total count
+        const total = await Purchase.countDocuments({ storeId: req.storeId });
 
-        if (error) {
-            return res.status(400).json({ error: error.message });
-        }
-
-        res.json(data);
+        res.json({
+            purchases,
+            total,
+            limit: parseInt(limit),
+            skip: parseInt(skip)
+        });
     } catch (error) {
         console.error('Get purchases error:', error);
         res.status(500).json({ error: 'Failed to fetch purchases' });
     }
 });
 
-// Create purchase (admin/coadmin only)
+/**
+ * GET /api/purchases/:id
+ * Get single purchase (admin/coadmin only)
+ * Requires: x-store-id header
+ */
+router.get('/:id', authenticate, requireStoreAccess(['admin', 'coadmin']), async (req, res) => {
+    try {
+        const purchase = await Purchase.findOne({
+            _id: req.params.id,
+            storeId: req.storeId
+        })
+            .populate('productId', 'name sku costPrice')
+            .populate('createdBy', 'name email');
+
+        if (!purchase) {
+            return res.status(404).json({ error: 'Purchase not found' });
+        }
+
+        res.json(purchase);
+    } catch (error) {
+        console.error('Get purchase error:', error);
+        res.status(500).json({ error: 'Failed to fetch purchase' });
+    }
+});
+
+/**
+ * POST /api/purchases
+ * Create a new purchase (with MongoDB transaction for stock update)
+ * Admin/coadmin only
+ * Requires: x-store-id header
+ */
 router.post('/',
     authenticate,
     requireStoreAccess(['admin', 'coadmin']),
     injectStoreMetadata,
     async (req, res) => {
-        try {
-            const { product_id, quantity, cost_price, supplier_name } = req.body;
+        const session = await mongoose.startSession();
+        session.startTransaction();
 
-            if (!product_id || !quantity || !cost_price) {
+        try {
+            const {
+                productId,
+                quantity,
+                costPrice,
+                supplierName
+            } = req.body;
+
+            if (!productId || !quantity || costPrice === undefined) {
+                await session.abortTransaction();
                 return res.status(400).json({
                     error: 'Product ID, quantity, and cost price are required'
                 });
             }
 
-            // Verify product exists in this store
-            const { data: product, error: productError } = await supabase
-                .from('products')
-                .select('id, name')
-                .eq('id', product_id)
-                .eq('store_id', req.storeId)
-                .single();
+            if (quantity <= 0) {
+                await session.abortTransaction();
+                return res.status(400).json({ error: 'Quantity must be greater than 0' });
+            }
 
-            if (productError) {
+            // 1. Check product exists (within transaction)
+            const product = await Product.findOne({
+                _id: productId,
+                storeId: req.storeId
+            }).session(session);
+
+            if (!product) {
+                await session.abortTransaction();
                 return res.status(404).json({ error: 'Product not found in this store' });
             }
 
-            const total_amount = quantity * cost_price;
+            // 2. Create purchase (within transaction)
+            const purchaseData = {
+                storeId: req.storeId,
+                productId,
+                quantity,
+                costPrice,
+                totalAmount: quantity * costPrice,
+                supplierName,
+                createdBy: req.user.id
+            };
 
-            // Create purchase (trigger will auto-update stock)
-            const { data: purchase, error: purchaseError } = await supabase
-                .from('purchases')
-                .insert([{
-                    store_id: req.storeId,
-                    product_id,
-                    quantity,
-                    cost_price,
-                    total_amount,
-                    supplier_name,
-                    created_by: req.user.id
-                }])
-                .select()
-                .single();
+            const purchase = await Purchase.create([purchaseData], { session });
 
-            if (purchaseError) {
-                return res.status(400).json({ error: purchaseError.message });
-            }
+            // 3. Update product stock (within transaction)
+            await Product.findByIdAndUpdate(
+                productId,
+                {
+                    $inc: { stock: quantity },
+                    costPrice: costPrice // Update cost price with latest purchase
+                },
+                { session, runValidators: true }
+            );
 
-            res.status(201).json(purchase);
+            // Commit transaction
+            await session.commitTransaction();
+
+            // Populate and return
+            const populatedPurchase = await Purchase.findById(purchase[0]._id)
+                .populate('productId', 'name sku')
+                .populate('createdBy', 'name email');
+
+            res.status(201).json(populatedPurchase);
+
         } catch (error) {
+            await session.abortTransaction();
             console.error('Create purchase error:', error);
             res.status(500).json({ error: 'Failed to create purchase' });
+        } finally {
+            session.endSession();
         }
     });
 
-// Update purchase (admin/coadmin only)
-router.put('/:id',
-    authenticate,
-    requireStoreAccess(['admin', 'coadmin']),
-    async (req, res) => {
-        try {
-            const { id } = req.params;
-            const { quantity, cost_price, supplier_name } = req.body;
-
-            const updates = {};
-            if (quantity !== undefined) {
-                updates.quantity = quantity;
-                if (cost_price !== undefined) {
-                    updates.total_amount = quantity * cost_price;
-                }
-            }
-            if (cost_price !== undefined) {
-                updates.cost_price = cost_price;
-                if (quantity === undefined) {
-                    // Need to get current quantity
-                    const { data: current } = await supabase
-                        .from('purchases')
-                        .select('quantity')
-                        .eq('id', id)
-                        .single();
-                    if (current) {
-                        updates.total_amount = current.quantity * cost_price;
-                    }
-                }
-            }
-            if (supplier_name !== undefined) updates.supplier_name = supplier_name;
-
-            const { data, error } = await supabase
-                .from('purchases')
-                .update(updates)
-                .eq('id', id)
-                .eq('store_id', req.storeId)
-                .select()
-                .single();
-
-            if (error) {
-                return res.status(400).json({ error: error.message });
-            }
-
-            res.json(data);
-        } catch (error) {
-            console.error('Update purchase error:', error);
-            res.status(500).json({ error: 'Failed to update purchase' });
-        }
-    });
-
-// Delete purchase (admin/coadmin only)
+/**
+ * DELETE /api/purchases/:id
+ * Delete purchase and reduce stock (admin/coadmin only)
+ * Requires: x-store-id header
+ */
 router.delete('/:id',
     authenticate,
     requireStoreAccess(['admin', 'coadmin']),
     async (req, res) => {
+        const session = await mongoose.startSession();
+        session.startTransaction();
+
         try {
-            const { id } = req.params;
+            // Find purchase
+            const purchase = await Purchase.findOne({
+                _id: req.params.id,
+                storeId: req.storeId
+            }).session(session);
 
-            // Note: Deleting a purchase does NOT reduce stock automatically
-            // This maintains data integrity
-
-            const { error } = await supabase
-                .from('purchases')
-                .delete()
-                .eq('id', id)
-                .eq('store_id', req.storeId);
-
-            if (error) {
-                return res.status(400).json({ error: error.message });
+            if (!purchase) {
+                await session.abortTransaction();
+                return res.status(404).json({ error: 'Purchase not found' });
             }
 
-            res.json({
-                message: 'Purchase deleted successfully',
-                note: 'Stock was not automatically adjusted. Create a sale if stock needs to be reduced.'
-            });
+            // Check if we can reduce stock (must not go negative)
+            const product = await Product.findById(purchase.productId).session(session);
+
+            if (product.stock < purchase.quantity) {
+                await session.abortTransaction();
+                return res.status(400).json({
+                    error: `Cannot delete purchase. Stock would become negative. Current stock: ${product.stock}`
+                });
+            }
+
+            // Reduce stock
+            await Product.findByIdAndUpdate(
+                purchase.productId,
+                { $inc: { stock: -purchase.quantity } },
+                { session }
+            );
+
+            // Delete purchase
+            await Purchase.findByIdAndDelete(purchase._id).session(session);
+
+            await session.commitTransaction();
+            res.json({ message: 'Purchase deleted and stock adjusted successfully' });
+
         } catch (error) {
+            await session.abortTransaction();
             console.error('Delete purchase error:', error);
             res.status(500).json({ error: 'Failed to delete purchase' });
+        } finally {
+            session.endSession();
         }
     });
 

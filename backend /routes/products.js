@@ -1,43 +1,50 @@
 import express from 'express';
-import { supabase } from '../config/supabase.js';
+import Product from '../models/Product.js';
 import { authenticate, requireStoreAccess, injectStoreMetadata } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// Helper function to filter sensitive fields for staff users
+/**
+ * Helper function to filter sensitive fields for staff users
+ */
 const filterProductForRole = (product, role) => {
     if (role === 'staff') {
         // Remove cost_price for staff users
-        const { cost_price, ...filtered } = product;
+        const productObj = product.toObject ? product.toObject() : product;
+        const { costPrice, ...filtered } = productObj;
         return filtered;
     }
-    return product;
+    return product.toObject ? product.toObject() : product;
 };
 
-// Get all products in a store
+/**
+ * GET /api/products
+ * Get all products in a store
+ * Requires: x-store-id header
+ */
 router.get('/', authenticate, requireStoreAccess(), async (req, res) => {
     try {
         const { search, sortBy = 'name', order = 'asc' } = req.query;
 
-        let query = supabase
-            .from('products')
-            .select('*')
-            .eq('store_id', req.storeId);
+        // Build query - MUST filter by storeId
+        let query = Product.find({ storeId: req.storeId });
 
+        // Search by name or SKU
         if (search) {
-            query = query.or(`name.ilike.%${search}%,sku.ilike.%${search}%`);
+            query = query.or([
+                { name: { $regex: search, $options: 'i' } },
+                { sku: { $regex: search, $options: 'i' } }
+            ]);
         }
 
-        query = query.order(sortBy, { ascending: order === 'asc' });
+        // Sort
+        const sortOrder = order === 'asc' ? 1 : -1;
+        query = query.sort({ [sortBy]: sortOrder });
 
-        const { data, error } = await query;
-
-        if (error) {
-            return res.status(400).json({ error: error.message });
-        }
+        const products = await query.lean();
 
         // Filter sensitive data based on user role
-        const filtered = data.map(p => filterProductForRole(p, req.currentStore.role));
+        const filtered = products.map(p => filterProductForRole(p, req.currentStore.role));
 
         res.json(filtered);
     } catch (error) {
@@ -46,24 +53,27 @@ router.get('/', authenticate, requireStoreAccess(), async (req, res) => {
     }
 });
 
-// Get single product
+/**
+ * GET /api/products/:id
+ * Get single product
+ * Requires: x-store-id header
+ */
 router.get('/:id', authenticate, requireStoreAccess(), async (req, res) => {
     try {
         const { id } = req.params;
 
-        const { data, error } = await supabase
-            .from('products')
-            .select('*')
-            .eq('id', id)
-            .eq('store_id', req.storeId)
-            .single();
+        // MUST filter by both id AND storeId
+        const product = await Product.findOne({
+            _id: id,
+            storeId: req.storeId
+        });
 
-        if (error) {
+        if (!product) {
             return res.status(404).json({ error: 'Product not found' });
         }
 
         // Filter sensitive data based on user role
-        const filtered = filterProductForRole(data, req.currentStore.role);
+        const filtered = filterProductForRole(product, req.currentStore.role);
 
         res.json(filtered);
     } catch (error) {
@@ -72,7 +82,11 @@ router.get('/:id', authenticate, requireStoreAccess(), async (req, res) => {
     }
 });
 
-// Create product (admin/coadmin only)
+/**
+ * POST /api/products
+ * Create product (admin/coadmin only)
+ * Requires: x-store-id header
+ */
 router.post('/',
     authenticate,
     requireStoreAccess(['admin', 'coadmin']),
@@ -84,50 +98,49 @@ router.post('/',
                 sku,
                 description,
                 stock,
-                cost_price,
-                selling_price,
-                low_stock_threshold
+                costPrice,
+                sellingPrice,
+                lowStockThreshold
             } = req.body;
 
-            if (!name || cost_price === undefined || selling_price === undefined) {
+            if (!name || costPrice === undefined || sellingPrice === undefined) {
                 return res.status(400).json({
-                    error: 'Name, cost_price, and selling_price are required'
+                    error: 'Name, costPrice, and sellingPrice are required'
                 });
             }
 
             const productData = {
-                store_id: req.storeId,
+                storeId: req.storeId, // CRITICAL: Always set storeId
                 name,
                 sku,
                 description,
                 stock: stock || 0,
-                cost_price,
-                selling_price,
-                low_stock_threshold: low_stock_threshold || 10
+                costPrice,
+                sellingPrice,
+                lowStockThreshold: lowStockThreshold || 10
             };
 
-            const { data, error } = await supabase
-                .from('products')
-                .insert([productData])
-                .select()
-                .single();
+            const product = new Product(productData);
+            await product.save();
 
-            if (error) {
-                // Handle unique constraint violation for SKU
-                if (error.code === '23505') {
-                    return res.status(400).json({ error: 'SKU already exists in this store' });
-                }
-                return res.status(400).json({ error: error.message });
-            }
-
-            res.status(201).json(data);
+            res.status(201).json(product);
         } catch (error) {
             console.error('Create product error:', error);
+
+            // Handle unique constraint violation for SKU
+            if (error.code === 11000 && error.keyPattern?.sku) {
+                return res.status(400).json({ error: 'SKU already exists in this store' });
+            }
+
             res.status(500).json({ error: 'Failed to create product' });
         }
     });
 
-// Update product (admin/coadmin only)
+/**
+ * PUT /api/products/:id
+ * Update product (admin/coadmin only)
+ * Requires: x-store-id header
+ */
 router.put('/:id',
     authenticate,
     requireStoreAccess(['admin', 'coadmin']),
@@ -139,9 +152,9 @@ router.put('/:id',
                 sku,
                 description,
                 stock,
-                cost_price,
-                selling_price,
-                low_stock_threshold
+                costPrice,
+                sellingPrice,
+                lowStockThreshold
             } = req.body;
 
             const updates = {};
@@ -149,33 +162,39 @@ router.put('/:id',
             if (sku !== undefined) updates.sku = sku;
             if (description !== undefined) updates.description = description;
             if (stock !== undefined) updates.stock = stock;
-            if (cost_price !== undefined) updates.cost_price = cost_price;
-            if (selling_price !== undefined) updates.selling_price = selling_price;
-            if (low_stock_threshold !== undefined) updates.low_stock_threshold = low_stock_threshold;
+            if (costPrice !== undefined) updates.costPrice = costPrice;
+            if (sellingPrice !== undefined) updates.sellingPrice = sellingPrice;
+            if (lowStockThreshold !== undefined) updates.lowStockThreshold = lowStockThreshold;
 
-            const { data, error } = await supabase
-                .from('products')
-                .update(updates)
-                .eq('id', id)
-                .eq('store_id', req.storeId)
-                .select()
-                .single();
+            // MUST filter by both id AND storeId
+            const product = await Product.findOneAndUpdate(
+                { _id: id, storeId: req.storeId },
+                updates,
+                { new: true, runValidators: true }
+            );
 
-            if (error) {
-                if (error.code === '23505') {
-                    return res.status(400).json({ error: 'SKU already exists in this store' });
-                }
-                return res.status(400).json({ error: error.message });
+            if (!product) {
+                return res.status(404).json({ error: 'Product not found' });
             }
 
-            res.json(data);
+            res.json(product);
         } catch (error) {
             console.error('Update product error:', error);
+
+            // Handle unique constraint violation
+            if (error.code === 11000) {
+                return res.status(400).json({ error: 'SKU already exists in this store' });
+            }
+
             res.status(500).json({ error: 'Failed to update product' });
         }
     });
 
-// Delete product (admin/coadmin only)
+/**
+ * DELETE /api/products/:id
+ * Delete product (admin/coadmin only)
+ * Requires: x-store-id header
+ */
 router.delete('/:id',
     authenticate,
     requireStoreAccess(['admin', 'coadmin']),
@@ -183,14 +202,14 @@ router.delete('/:id',
         try {
             const { id } = req.params;
 
-            const { error } = await supabase
-                .from('products')
-                .delete()
-                .eq('id', id)
-                .eq('store_id', req.storeId);
+            // MUST filter by both id AND storeId
+            const product = await Product.findOneAndDelete({
+                _id: id,
+                storeId: req.storeId
+            });
 
-            if (error) {
-                return res.status(400).json({ error: error.message });
+            if (!product) {
+                return res.status(404).json({ error: 'Product not found' });
             }
 
             res.json({ message: 'Product deleted successfully' });

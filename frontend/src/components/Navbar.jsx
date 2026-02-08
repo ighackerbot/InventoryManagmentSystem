@@ -18,7 +18,7 @@ export const Navbar = () => {
         <nav className="navbar">
             <div className="container navbar-content">
                 <Link to="/" className="navbar-brand">
-                    📦 SHRI GURUKRIPA TRADING COMPANY INVENTORY
+                    📦 Inventory Management System
                 </Link>
 
                 {user && (
