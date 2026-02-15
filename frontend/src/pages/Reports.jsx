@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { reportsAPI } from '../utils/api';
 import { LoadingSpinner } from '../components/LoadingSpinner';
 import { Card } from '../components/Card';
 import {
@@ -8,25 +9,20 @@ import {
 } from 'recharts';
 
 export const Reports = () => {
-    const { token } = useAuth();
+    const { currentStore } = useAuth();
     const [stats, setStats] = useState([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        fetchReports();
-    }, []);
+        if (currentStore) {
+            fetchReports();
+        }
+    }, [currentStore]);
 
     const fetchReports = async () => {
         try {
-            const response = await fetch(`${import.meta.env.VITE_API_URL}/reports/stats`, {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
-            if (response.ok) {
-                const data = await response.json();
-                setStats(data);
-            }
+            const { data } = await reportsAPI.getStats();
+            setStats(data || []);
         } catch (error) {
             console.error('Error fetching reports:', error);
         } finally {
