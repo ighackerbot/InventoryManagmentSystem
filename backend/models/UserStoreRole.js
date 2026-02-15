@@ -28,10 +28,6 @@ const userStoreRoleSchema = new mongoose.Schema({
 // Compound index to ensure a user can only have one role per store
 userStoreRoleSchema.index({ userId: 1, storeId: 1 }, { unique: true });
 
-// Additional indexes for queries
-userStoreRoleSchema.index({ userId: 1 });
-userStoreRoleSchema.index({ storeId: 1 });
-
 const UserStoreRole = mongoose.model('UserStoreRole', userStoreRoleSchema);
 
 export default UserStoreRole;

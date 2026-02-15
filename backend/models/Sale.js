@@ -41,9 +41,8 @@ const saleSchema = new mongoose.Schema({
 });
 
 // Indexes for efficient queries
-saleSchema.index({ storeId: 1 }); // CRITICAL for isolation
-saleSchema.index({ createdAt: -1 }); // For sorting by date
 saleSchema.index({ storeId: 1, createdAt: -1 }); // Compound for filtered + sorted queries
+saleSchema.index({ createdAt: -1 }); // For sorting by date
 saleSchema.index({ productId: 1 }); // For product-specific queries
 
 // Calculate total amount before saving

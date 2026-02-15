@@ -58,8 +58,6 @@ const storeSchema = new mongoose.Schema({
     timestamps: true
 });
 
-// Index for faster owner queries
-storeSchema.index({ ownerId: 1 });
 
 const Store = mongoose.model('Store', storeSchema);
 

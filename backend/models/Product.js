@@ -46,11 +46,7 @@ const productSchema = new mongoose.Schema({
     timestamps: true
 });
 
-// Compound unique index: SKU must be unique per store (not globally)
 productSchema.index({ storeId: 1, sku: 1 }, { unique: true, sparse: true });
-
-// Index for efficient store-based queries (CRITICAL)
-productSchema.index({ storeId: 1 });
 
 // Virtual for low stock check
 productSchema.virtual('isLowStock').get(function () {
