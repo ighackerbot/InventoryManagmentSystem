@@ -10,8 +10,18 @@ const storeSchema = new mongoose.Schema({
         type: String,
         required: [true, 'Store type is required'],
         enum: {
-            values: ['shop', 'godown', 'branch'],
-            message: 'Type must be shop, godown, or branch'
+            values: [
+                'Warehouse & Logistics',
+                'Retail Shop',
+                'Godown',
+                'Branch',
+                'Distribution Center',
+                // Legacy values for backward compatibility
+                'shop',
+                'godown',
+                'branch'
+            ],
+            message: 'Invalid store type'
         }
     },
     address: {
@@ -34,6 +44,15 @@ const storeSchema = new mongoose.Schema({
         default: 0,
         min: [0, 'Tax percent cannot be negative'],
         max: [100, 'Tax percent cannot exceed 100']
+    },
+    adminPin: {
+        type: String,
+        trim: true
+        // Set by admin during signup, used by co-admin/staff to join this store
+    },
+    teamCapacity: {
+        type: Number,
+        default: 50
     }
 }, {
     timestamps: true

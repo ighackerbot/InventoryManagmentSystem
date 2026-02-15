@@ -1,4 +1,5 @@
 import express from 'express';
+import mongoose from 'mongoose';
 import Product from '../models/Product.js';
 import Sale from '../models/Sale.js';
 import Purchase from '../models/Purchase.js';
@@ -13,32 +14,33 @@ const router = express.Router();
  */
 router.get('/', authenticate, requireStoreAccess(), async (req, res) => {
     try {
-        // All queries MUST filter by storeId
-        const storeId = req.storeId;
+        // CRITICAL: Convert storeId to ObjectId for aggregate $match
+        // aggregate() does NOT auto-cast strings like find() does
+        const storeId = new mongoose.Types.ObjectId(req.storeId);
 
         // 1. Calculate total stock
         const stockAgg = await Product.aggregate([
             { $match: { storeId: storeId } },
             { $group: { _id: null, current_stock: { $sum: '$stock' } } }
         ]);
-        const current_stock = stockAgg[0]?.current_stock || 0;
+        const currentStock = stockAgg[0]?.current_stock || 0;
 
         // 2. Calculate total sales
         const salesAgg = await Sale.aggregate([
             { $match: { storeId: storeId } },
             { $group: { _id: null, total_sales: { $sum: '$totalAmount' } } }
         ]);
-        const total_sales = salesAgg[0]?.total_sales || 0;
+        const totalSales = salesAgg[0]?.total_sales || 0;
 
         // 3. Calculate total purchases
         const purchasesAgg = await Purchase.aggregate([
             { $match: { storeId: storeId } },
             { $group: { _id: null, total_purchases: { $sum: '$totalAmount' } } }
         ]);
-        const total_purchases = purchasesAgg[0]?.total_purchases || 0;
+        const totalPurchases = purchasesAgg[0]?.total_purchases || 0;
 
         // 4. Recent Sales
-        const recent_sales = await Sale.find({ storeId })
+        const recentSales = await Sale.find({ storeId: req.storeId })
             .populate('productId', 'name')
             .populate('createdBy', 'name')
             .sort({ createdAt: -1 })
@@ -46,22 +48,65 @@ router.get('/', authenticate, requireStoreAccess(), async (req, res) => {
             .lean();
 
         // 5. Recent Purchases
-        const recent_purchases = await Purchase.find({ storeId })
+        const recentPurchases = await Purchase.find({ storeId: req.storeId })
             .populate('productId', 'name')
             .populate('createdBy', 'name')
             .sort({ createdAt: -1 })
             .limit(5)
             .lean();
 
-        const net_revenue = total_sales - total_purchases;
+        // 6. Top Products by sales
+        const topProducts = await Sale.aggregate([
+            { $match: { storeId: storeId } },
+            {
+                $group: {
+                    _id: '$productId',
+                    totalQuantity: { $sum: '$quantity' },
+                    totalRevenue: { $sum: '$totalAmount' }
+                }
+            },
+            { $sort: { totalRevenue: -1 } },
+            { $limit: 5 },
+            {
+                $lookup: {
+                    from: 'products',
+                    localField: '_id',
+                    foreignField: '_id',
+                    as: 'product'
+                }
+            },
+            { $unwind: '$product' },
+            {
+                $project: {
+                    name: '$product.name',
+                    totalQuantity: 1,
+                    totalRevenue: 1
+                }
+            }
+        ]);
 
+        // 7. Low Stock Products
+        const lowStockProducts = await Product.find({
+            storeId: req.storeId,
+            $expr: { $lte: ['$stock', '$lowStockThreshold'] }
+        })
+            .select('name stock lowStockThreshold')
+            .sort({ stock: 1 })
+            .limit(10)
+            .lean();
+
+        const netRevenue = totalSales - totalPurchases;
+
+        // Return camelCase field names to match Dashboard.jsx expectations
         res.json({
-            total_sales,
-            total_purchases,
-            current_stock,
-            net_revenue,
-            recent_sales,
-            recent_purchases
+            totalSales,
+            totalPurchases,
+            currentStock,
+            netRevenue,
+            recentSales,
+            recentPurchases,
+            topProducts,
+            lowStockProducts
         });
 
     } catch (error) {
@@ -77,7 +122,7 @@ router.get('/', authenticate, requireStoreAccess(), async (req, res) => {
  */
 router.get('/stats', authenticate, requireStoreAccess(['admin', 'coadmin']), async (req, res) => {
     try {
-        const storeId = req.storeId;
+        const storeId = new mongoose.Types.ObjectId(req.storeId);
 
         // Get products with sales and purchase aggregations
         const stats = await Product.aggregate([

@@ -18,18 +18,17 @@ const ProtectedRoute = ({ children, adminOnly = false }) => {
 
   if (loading) return <LoadingSpinner />;
 
-  if (!user) return <Navigate to="/login" />;
+  if (!user) return <Navigate to="/login" replace />;
 
-  // If user exists but has no current store, clear auth and force re-login
-  // This prevents infinite redirect loop between ProtectedRoute and PublicRoute
+  // If user exists but has no current store, redirect to login
+  // AuthContext will handle clearing if needed
   if (!currentStore) {
-    localStorage.clear();
-    return <Navigate to="/login" />;
+    return <Navigate to="/login" replace />;
   }
 
   // Check admin access for admin-only routes
   if (adminOnly && currentStore.role !== 'admin' && currentStore.role !== 'coadmin') {
-    return <Navigate to="/dashboard" />;
+    return <Navigate to="/dashboard" replace />;
   }
 
   return children;
@@ -51,11 +50,12 @@ const Layout = ({ children }) => {
 
 // Public Route (redirect to dashboard if logged in)
 const PublicRoute = ({ children }) => {
-  const { user, loading } = useAuth();
+  const { user, currentStore, loading } = useAuth();
 
   if (loading) return <LoadingSpinner />;
 
-  if (user) return <Navigate to="/dashboard" />;
+  // Only redirect to dashboard if user is logged in AND has a current store
+  if (user && currentStore) return <Navigate to="/dashboard" replace />;
 
   return children;
 };

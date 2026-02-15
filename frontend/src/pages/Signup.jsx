@@ -18,14 +18,14 @@ export const Signup = () => {
     const [adminPin, setAdminPin] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
-    const { signUp } = useAuth();
+    const { signUp, joinStore } = useAuth();
     const navigate = useNavigate();
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         setError('');
 
-        if (password !== confirmPassword) {
+        if ((activeTab === 'coadmin' || activeTab === 'staff') && password !== confirmPassword) {
             return setError('Passwords do not match');
         }
 
@@ -49,17 +49,28 @@ export const Signup = () => {
         setLoading(true);
 
         try {
-            // Pass role information to signUp function
-            await signUp(
-                name,
-                email,
-                password,
-                storeName || `${name}'s Store`,
-                storeType,
-                activeTab, // Pass the selected role
-                adminCode,
-                teamCapacity
-            );
+            if (activeTab === 'admin') {
+                // Admin signup — create new store
+                await signUp(
+                    name,
+                    email,
+                    password,
+                    storeName || `${name}'s Store`,
+                    storeType,
+                    activeTab,
+                    adminPin, // Admin PIN to save on the store
+                    teamCapacity
+                );
+            } else {
+                // Co-Admin/Staff signup — join existing store via admin PIN
+                await joinStore(
+                    name,
+                    email,
+                    password,
+                    activeTab, // 'coadmin' or 'staff'
+                    adminCode  // The admin's PIN
+                );
+            }
             navigate('/dashboard');
         } catch (err) {
             setError(err.response?.data?.error || err.message || 'Failed to create account');
@@ -192,31 +203,13 @@ export const Signup = () => {
             />
 
             <Input
-                label="Admin Generated Code"
+                label="Admin PIN Code"
                 type="text"
                 value={adminCode}
                 onChange={(e) => setAdminCode(e.target.value)}
-                placeholder="Enter invite code"
+                placeholder="Enter the admin's PIN to join their store"
                 required
             />
-
-            <div style={{ marginBottom: '1rem' }}>
-                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <span>👥</span> Select Store
-                    </span>
-                </label>
-                <select
-                    value={storeType}
-                    onChange={(e) => setStoreType(e.target.value)}
-                    className="form-input"
-                    style={{ width: '100%' }}
-                >
-                    <option value="Warehouse & Logistics">Warehouse & Logistics</option>
-                    <option value="Retail Shop">Retail Shop</option>
-                    <option value="Godown">Godown</option>
-                </select>
-            </div>
 
             <Button
                 type="submit"
@@ -224,7 +217,7 @@ export const Signup = () => {
                 loading={loading}
                 style={{ width: '100%', marginTop: '1rem' }}
             >
-                Sign Up as Co-Admin
+                Join Store as Co-Admin
             </Button>
         </>
     );
@@ -268,20 +261,13 @@ export const Signup = () => {
             />
 
             <Input
-                label="Admin Generated Code"
+                label="Admin PIN Code"
                 type="text"
                 value={adminCode}
                 onChange={(e) => setAdminCode(e.target.value)}
-                placeholder="Enter verification code"
+                placeholder="Enter the admin's PIN to join their store"
                 required
             />
-
-            <div style={{ marginBottom: '1rem', padding: '0.75rem', background: 'rgba(16, 185, 129, 0.1)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <span style={{ color: 'var(--color-success)', fontSize: '1.2rem' }}>✓</span>
-                <span style={{ color: 'var(--color-success)', fontWeight: 600, fontSize: '0.9rem' }}>
-                    Code Validated
-                </span>
-            </div>
 
             <Button
                 type="submit"
@@ -289,7 +275,7 @@ export const Signup = () => {
                 loading={loading}
                 style={{ width: '100%', marginTop: '1rem' }}
             >
-                Sign Up as Staff
+                Join Store as Staff
             </Button>
         </>
     );

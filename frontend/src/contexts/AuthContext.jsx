@@ -45,22 +45,35 @@ export const AuthProvider = ({ children }) => {
         setLoading(false);
     }, []);
 
-    const signUp = async (name, email, password, storeName, storeType) => {
+    const signUp = async (name, email, password, storeName, storeType, role, adminCode, teamCapacity) => {
         try {
+            console.log('📤 Sending signup request with:', { name, email, storeName, storeType, role, adminCode, teamCapacity });
+
             const { data } = await authAPI.signup({
                 name,
                 email,
                 password,
                 storeName,
-                storeType
+                storeType,
+                role,
+                adminCode,
+                teamCapacity
             });
+
+            console.log('📥 Received signup response:', data);
 
             // Save to localStorage
             localStorage.setItem('token', data.token);
             localStorage.setItem('user', JSON.stringify(data.user));
 
             // Save store info
-            const userStores = [data.store];
+            const userStores = [{
+                id: data.store.id,
+                name: data.store.name,
+                type: data.store.type,
+                role: data.store.role || 'admin'
+            }];
+            console.log('💾 Saving stores:', userStores);
             localStorage.setItem('stores', JSON.stringify(userStores));
 
             // Set current store
@@ -69,11 +82,64 @@ export const AuthProvider = ({ children }) => {
             // Update state
             setUser(data.user);
             setStores(userStores);
-            setCurrentStoreState(data.store);
+            setCurrentStoreState(userStores[0]);
 
+            console.log('✅ Signup completed successfully');
             return data;
         } catch (error) {
-            console.error('Signup error:', error);
+            console.error('❌ Signup error:', {
+                message: error.message,
+                response: error.response?.data,
+                status: error.response?.status,
+                fullError: error
+            });
+            throw error;
+        }
+    };
+
+    const joinStore = async (name, email, password, role, adminCode) => {
+        try {
+            console.log('📤 Sending join-store request:', { name, email, role, adminCode: adminCode ? '***' : 'missing' });
+
+            const { data } = await authAPI.joinStore({
+                name,
+                email,
+                password,
+                role,
+                adminCode
+            });
+
+            console.log('📥 Join-store response:', data);
+
+            // Save to localStorage
+            localStorage.setItem('token', data.token);
+            localStorage.setItem('user', JSON.stringify(data.user));
+
+            // Save store info
+            const userStores = data.stores || [{
+                id: data.store.id,
+                name: data.store.name,
+                type: data.store.type,
+                role: data.store.role
+            }];
+            localStorage.setItem('stores', JSON.stringify(userStores));
+
+            // Set current store
+            setCurrentStore(userStores[0].id);
+
+            // Update state
+            setUser(data.user);
+            setStores(userStores);
+            setCurrentStoreState(userStores[0]);
+
+            console.log('✅ Join-store completed successfully');
+            return data;
+        } catch (error) {
+            console.error('❌ Join-store error:', {
+                message: error.message,
+                response: error.response?.data,
+                status: error.response?.status
+            });
             throw error;
         }
     };
@@ -178,6 +244,7 @@ export const AuthProvider = ({ children }) => {
         currentStore,
         loading,
         signUp,
+        joinStore,
         signIn,
         staffLogin,
         signOut,
