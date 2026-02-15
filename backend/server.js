@@ -19,15 +19,9 @@ const PORT = process.env.PORT || 3001;
 // Connect to MongoDB
 connectDB();
 
-// Middleware
-const allowedOrigins = [
-    'http://localhost:5174',
-    'http://localhost:5173',
-    process.env.FRONTEND_URL
-].filter(Boolean); // Remove undefined values
-
+// Middleware - CORS
 app.use(cors({
-    origin: allowedOrigins,
+    origin: true, // Allow all origins (safe with JWT auth, no cookies)
     credentials: true
 }));
 app.use(express.json());
