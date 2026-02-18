@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react';
-import { authAPI, setCurrentStore, getCurrentStore } from '../utils/api';
+import { authAPI, storesAPI, setCurrentStore, getCurrentStore } from '../utils/api';
 
 const AuthContext = createContext({});
 
@@ -223,6 +223,50 @@ export const AuthProvider = ({ children }) => {
         }
     };
 
+    const refreshStores = async () => {
+        try {
+            const { data } = await storesAPI.getAll();
+            const formattedStores = data.map(s => ({
+                id: s._id,
+                name: s.name,
+                type: s.type,
+                role: s.user_role
+            }));
+            localStorage.setItem('stores', JSON.stringify(formattedStores));
+            setStores(formattedStores);
+            return formattedStores;
+        } catch (error) {
+            console.error('Refresh stores error:', error);
+            throw error;
+        }
+    };
+
+    const createStore = async (storeName, storeType, adminPin, teamCapacity) => {
+        try {
+            const { data } = await storesAPI.create({
+                name: storeName,
+                type: storeType,
+                adminPin,
+                teamCapacity
+            });
+
+            // Refresh stores list from backend
+            const updatedStores = await refreshStores();
+
+            // Auto-switch to the new store
+            const newStore = updatedStores.find(s => s.id === data._id);
+            if (newStore) {
+                setCurrentStore(newStore.id);
+                setCurrentStoreState(newStore);
+            }
+
+            return data;
+        } catch (error) {
+            console.error('Create store error:', error);
+            throw error;
+        }
+    };
+
     const isAdmin = () => {
         if (!currentStore) return false;
         return currentStore.role === 'admin' || currentStore.role === 'coadmin';
@@ -249,6 +293,8 @@ export const AuthProvider = ({ children }) => {
         staffLogin,
         signOut,
         switchStore,
+        createStore,
+        refreshStores,
         isAdmin,
         isStaff,
         hasRole,

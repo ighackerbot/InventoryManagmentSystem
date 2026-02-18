@@ -31,7 +31,7 @@ router.get('/', authenticate, async (req, res) => {
  */
 router.post('/', authenticate, async (req, res) => {
     try {
-        const { name, type, address, currency, taxPercent } = req.body;
+        const { name, type, address, currency, taxPercent, adminPin, teamCapacity } = req.body;
 
         if (!name || !type) {
             return res.status(400).json({ error: 'Name and type are required' });
@@ -44,7 +44,9 @@ router.post('/', authenticate, async (req, res) => {
             address,
             currency: currency || 'INR',
             taxPercent: taxPercent || 0,
-            ownerId: req.user.id
+            ownerId: req.user.id,
+            adminPin: adminPin || undefined,
+            teamCapacity: teamCapacity || 50
         });
 
         await store.save();

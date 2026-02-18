@@ -18,8 +18,9 @@ export const Navbar = () => {
     return (
         <nav className="navbar">
             <div className="container navbar-content">
-                <Link to="/" className="navbar-brand">
-                    📦 Inventory Management
+                <Link to="/" className="navbar-brand" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <img src="/logo.png" alt="Inventory APK" style={{ width: '32px', height: '32px', objectFit: 'contain', borderRadius: '4px' }} />
+                    Inventory APK
                 </Link>
 
                 {user && (
