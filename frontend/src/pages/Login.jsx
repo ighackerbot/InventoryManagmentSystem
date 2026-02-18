@@ -34,9 +34,20 @@ export const Login = () => {
         <div className="flex justify-center items-center" style={{ minHeight: '100vh', background: 'var(--gradient-primary)' }}>
             <Card className="animate-slide-in" style={{ maxWidth: '450px', width: '100%', margin: '2rem' }}>
                 <div className="text-center mb-xl">
-                    <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>📦</div>
+                    <img
+                        src="/logo.png"
+                        alt="Inventory APK"
+                        style={{
+                            width: '120px',
+                            height: '120px',
+                            objectFit: 'contain',
+                            margin: '0 auto 1rem',
+                            display: 'block',
+                            borderRadius: '12px'
+                        }}
+                    />
                     <h2>Welcome Back</h2>
-                    <p>Sign in to your InventoryPro account</p>
+                    <p>Sign in to your Inventory APK account</p>
                 </div>
 
                 {/* Tab Navigation */}
