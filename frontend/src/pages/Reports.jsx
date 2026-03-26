@@ -1,143 +1,118 @@
-import { useState, useEffect } from 'react';
-import { useAuth } from '../contexts/AuthContext';
-import { reportsAPI } from '../utils/api';
-import { LoadingSpinner } from '../components/LoadingSpinner';
+import { useEffect, useState } from 'react';
+import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Card } from '../components/Card';
-import {
-    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-    PieChart, Pie, Cell, Line, ComposedChart
-} from 'recharts';
+import { EmptyState } from '../components/EmptyState';
+import { PageHeader } from '../components/PageHeader';
+import { Table } from '../components/Table';
+import { useAuth } from '../contexts/AuthContext';
+import { formatCurrency, formatNumber } from '../lib/utils';
+import { reportsAPI } from '../utils/api';
 
 export const Reports = () => {
-    const { currentStore } = useAuth();
-    const [stats, setStats] = useState([]);
-    const [loading, setLoading] = useState(true);
+  const { currentStore } = useAuth();
+  const [stats, setStats] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        if (currentStore) {
-            fetchReports();
-        }
-    }, [currentStore]);
-
+  useEffect(() => {
+    if (!currentStore) return;
     const fetchReports = async () => {
-        try {
-            const { data } = await reportsAPI.getStats();
-            setStats(data || []);
-        } catch (error) {
-            console.error('Error fetching reports:', error);
-        } finally {
-            setLoading(false);
-        }
+      try {
+        const response = await reportsAPI.getStats();
+        setStats(response.data || []);
+      } finally {
+        setLoading(false);
+      }
     };
+    fetchReports();
+  }, [currentStore]);
 
-    const formatCurrency = (amount) => {
-        return new Intl.NumberFormat('en-IN', {
-            style: 'currency',
-            currency: 'INR',
-            maximumFractionDigits: 2
-        }).format(amount);
-    };
+  const salesData = stats
+    .map((item) => ({ name: item.name, sales: item.total_sold, revenue: item.revenue }))
+    .filter((item) => item.sales > 0 || item.revenue > 0)
+    .slice(0, 10);
+  const stockData = stats
+    .map((item) => ({ name: item.name, value: item.stock }))
+    .filter((item) => item.value > 0)
+    .slice(0, 6);
 
-    // Prepare chart data
-    const salesData = stats.map(item => ({
-        name: item.name,
-        sales: item.total_sold,
-        revenue: item.revenue
-    })).filter(item => item.sales > 0 || item.revenue > 0).slice(0, 10); // Top 10
+  if (loading) {
+    return <div className="h-96 animate-pulse rounded-[28px] bg-white/80" />;
+  }
 
-    const stockData = stats.map(item => ({
-        name: item.name,
-        value: item.stock
-    })).filter(item => item.value > 0);
+  if (!stats.length) {
+    return <EmptyState title="No report data yet" description="Reports become more useful after you start recording products, sales, and purchases." />;
+  }
 
-    const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d', '#ffc658', '#8dd1e1', '#a4de6c', '#d0ed57'];
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Reports"
+        title="Business performance"
+        description="A higher-level view of product movement, stock concentration, and contribution to revenue."
+      />
 
-    if (loading) return <LoadingSpinner />;
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Card>
+          <div className="mb-5">
+            <h2 className="section-title">Product sales overview</h2>
+          </div>
+          <div className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={salesData}>
+                <CartesianGrid vertical={false} stroke="#e2e8f0" />
+                <XAxis dataKey="name" tickLine={false} axisLine={false} />
+                <YAxis tickLine={false} axisLine={false} />
+                <Tooltip formatter={(value, name) => (name === 'revenue' ? formatCurrency(value) : formatNumber(value))} />
+                <Bar dataKey="sales" radius={[10, 10, 0, 0]}>
+                  {salesData.map((item, index) => (
+                    <Cell key={item.name} fill={['#2563eb', '#3b82f6', '#60a5fa', '#93c5fd', '#bfdbfe'][index % 5]} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
 
-    return (
-        <div className="container mt-lg">
-            <h1>Reports Dashboard</h1>
+        <Card>
+          <div className="mb-5">
+            <h2 className="section-title">Stock distribution</h2>
+          </div>
+          <div className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie data={stockData} dataKey="value" nameKey="name" innerRadius={70} outerRadius={110}>
+                  {stockData.map((item, index) => (
+                    <Cell key={item.name} fill={['#0f172a', '#1d4ed8', '#16a34a', '#f59e0b', '#dc2626', '#8b5cf6'][index % 6]} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(value) => formatNumber(value)} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+      </div>
 
-            <div className="dashboard-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
-                <Card>
-                    <h2 className="text-center mb-lg">Sales Overview</h2>
-                    <div style={{ height: '300px' }}>
-                        <ResponsiveContainer width="100%" height="100%">
-                            <ComposedChart data={salesData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
-                                <CartesianGrid strokeDasharray="3 3" />
-                                <XAxis dataKey="name" angle={-45} textAnchor="end" height={80} interval={0} tick={{ fontSize: 10 }} />
-                                <YAxis yAxisId="left" orientation="left" />
-                                <YAxis yAxisId="right" orientation="right" />
-                                <Tooltip />
-                                <Legend />
-                                <Bar yAxisId="left" dataKey="sales" name="Units Sold" fill="#8884d8" />
-                                <Line yAxisId="right" type="monotone" dataKey="revenue" name="Revenue (₹)" stroke="#82ca9d" />
-                            </ComposedChart>
-                        </ResponsiveContainer>
-                    </div>
-                </Card>
-
-                <Card>
-                    <h2 className="text-center mb-lg">Stock Levels</h2>
-                    <div style={{ height: '300px' }}>
-                        <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                                <Pie
-                                    data={stockData}
-                                    cx="50%"
-                                    cy="50%"
-                                    innerRadius={60}
-                                    outerRadius={100}
-                                    fill="#8884d8"
-                                    paddingAngle={2}
-                                    dataKey="value"
-                                    label
-                                >
-                                    {stockData.map((entry, index) => (
-                                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                    ))}
-                                </Pie>
-                                <Tooltip />
-                            </PieChart>
-                        </ResponsiveContainer>
-                    </div>
-                </Card>
-            </div>
-
-            <Card className="mt-xl">
-                <h2 className="mb-lg">Detailed Financial Report</h2>
-                <div className="table-container" style={{ maxHeight: 'none', overflow: 'visible' }}>
-                    <table className="table">
-                        <thead>
-                            <tr>
-                                <th>Product</th>
-                                <th>Total Purchased</th>
-                                <th>Total Sold</th>
-                                <th>Current Stock</th>
-                                <th>Revenue</th>
-                                <th>Profit/Loss</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {stats.map((item) => (
-                                <tr key={item.id}>
-                                    <td data-label="Product" style={{ fontWeight: 600 }}>{item.name}</td>
-                                    <td data-label="Total Purchased">{item.total_purchased}</td>
-                                    <td data-label="Total Sold">{item.total_sold}</td>
-                                    <td data-label="Current Stock">{item.stock}</td>
-                                    <td data-label="Revenue">{formatCurrency(item.revenue)}</td>
-                                    <td data-label="Profit/Loss" style={{
-                                        color: item.profit_loss >= 0 ? 'var(--color-success)' : 'var(--color-error)',
-                                        fontWeight: 600
-                                    }}>
-                                        {formatCurrency(item.profit_loss)}
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            </Card>
-        </div>
-    );
+      <Table
+        rowKey={(row) => row._id}
+        columns={[
+          { key: 'name', header: 'Product', render: (item) => <span className="font-semibold text-neutral-950">{item.name}</span> },
+          { key: 'total_purchased', header: 'Purchased', render: (item) => formatNumber(item.total_purchased) },
+          { key: 'total_sold', header: 'Sold', render: (item) => formatNumber(item.total_sold) },
+          { key: 'stock', header: 'Current stock', render: (item) => formatNumber(item.stock) },
+          { key: 'revenue', header: 'Revenue', render: (item) => formatCurrency(item.revenue) },
+          {
+            key: 'profit_loss',
+            header: 'Profit / Loss',
+            render: (item) => (
+              <span className={item.profit_loss >= 0 ? 'font-semibold text-emerald-700' : 'font-semibold text-rose-700'}>
+                {formatCurrency(item.profit_loss)}
+              </span>
+            ),
+          },
+        ]}
+        data={stats}
+        empty="No report rows available."
+      />
+    </div>
+  );
 };
