@@ -1,342 +1,295 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
-import { Input } from '../components/Input';
+import { ArrowLeft, ArrowRight, Building2, KeyRound, LockKeyhole, Mail, User2, Users } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { AuthLayout } from '../components/AuthLayout';
 import { Button } from '../components/Button';
-import { Card } from '../components/Card';
+import { Input, Select } from '../components/Input';
+import { useToast } from '../components/ToastProvider';
+import { useAuth } from '../contexts/AuthContext';
+
+const STORE_TYPES = ['Warehouse & Logistics', 'Retail Shop', 'Godown', 'Branch', 'Distribution Center'];
 
 export const Signup = () => {
-    const [activeTab, setActiveTab] = useState('admin');
-    const [name, setName] = useState('');
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
-    const [confirmPassword, setConfirmPassword] = useState('');
-    const [storeName, setStoreName] = useState('');
-    const [storeType, setStoreType] = useState('Warehouse & Logistics');
-    const [teamCapacity, setTeamCapacity] = useState('50');
-    const [adminCode, setAdminCode] = useState('');
-    const [adminPin, setAdminPin] = useState('');
-    const [error, setError] = useState('');
-    const [loading, setLoading] = useState(false);
-    const { signUp, joinStore } = useAuth();
-    const navigate = useNavigate();
+  const navigate = useNavigate();
+  const toast = useToast();
+  const { signUp, joinStore } = useAuth();
+  const [activeTab, setActiveTab] = useState('admin');
+  const [step, setStep] = useState(1);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [form, setForm] = useState({
+    name: '',
+    email: '',
+    password: '',
+    confirmPassword: '',
+    storeName: '',
+    storeType: 'Warehouse & Logistics',
+    teamCapacity: '50',
+    adminCode: '',
+    adminPin: '',
+  });
 
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        setError('');
+  const basicValid =
+    form.name.trim() &&
+    form.email.trim() &&
+    form.password.length >= 6 &&
+    (activeTab === 'admin' || form.confirmPassword === form.password);
 
-        if ((activeTab === 'coadmin' || activeTab === 'staff') && password !== confirmPassword) {
-            return setError('Passwords do not match');
-        }
+  const handlePrimary = async (event) => {
+    event.preventDefault();
+    setError('');
 
-        if (password.length < 6) {
-            return setError('Password must be at least 6 characters');
-        }
+    if (!form.name.trim()) return setError('Name is required.');
+    if (!form.email.trim()) return setError('Email is required.');
+    if (form.password.length < 6) return setError('Password must be at least 6 characters.');
+    if (activeTab !== 'admin' && form.confirmPassword !== form.password) {
+      return setError('Passwords do not match.');
+    }
 
-        if (!name.trim()) {
-            return setError('Name is required');
-        }
+    if (activeTab === 'admin' && step === 1) {
+      setStep(2);
+      return;
+    }
 
-        // Role-specific validation
-        if (activeTab === 'admin' && !storeName.trim()) {
-            return setError('Organization name is required for Admin');
-        }
+    if (activeTab !== 'admin' && !form.adminCode.trim()) {
+      return setError('Admin code is required to join an existing workspace.');
+    }
 
-        if ((activeTab === 'coadmin' || activeTab === 'staff') && !adminCode.trim()) {
-            return setError('Admin generated code is required');
-        }
+    setLoading(true);
+    try {
+      if (activeTab === 'admin') {
+        await signUp(
+          form.name,
+          form.email,
+          form.password,
+          form.storeName || `${form.name}'s Workspace`,
+          form.storeType,
+          activeTab,
+          form.adminPin,
+          form.teamCapacity
+        );
+      } else {
+        await joinStore(form.name, form.email, form.password, activeTab, form.adminCode);
+      }
 
-        setLoading(true);
+      toast.success('Your workspace is ready. Welcome aboard.');
+      navigate('/dashboard');
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to create account.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-        try {
-            if (activeTab === 'admin') {
-                // Admin signup — create new store
-                await signUp(
-                    name,
-                    email,
-                    password,
-                    storeName || `${name}'s Store`,
-                    storeType,
-                    activeTab,
-                    adminPin, // Admin PIN to save on the store
-                    teamCapacity
-                );
-            } else {
-                // Co-Admin/Staff signup — join existing store via admin PIN
-                await joinStore(
-                    name,
-                    email,
-                    password,
-                    activeTab, // 'coadmin' or 'staff'
-                    adminCode  // The admin's PIN
-                );
-            }
-            navigate('/dashboard');
-        } catch (err) {
-            setError(err.response?.data?.error || err.message || 'Failed to create account');
-        } finally {
-            setLoading(false);
-        }
-    };
+  const formTitle =
+    activeTab === 'admin' ? 'Create a new business workspace' : `Join as ${activeTab === 'coadmin' ? 'co-admin' : 'staff'}`;
 
-    const renderAdminForm = () => (
-        <>
-            <Input
-                label="Full Name"
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="John Doe"
-                required
-            />
-
-            <Input
-                label="Email Address"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                required
-            />
-
-            <Input
-                label="Password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                required
-            />
-
-            <Input
-                label="Organization Name"
-                type="text"
-                value={storeName}
-                onChange={(e) => setStoreName(e.target.value)}
-                placeholder="My Company"
-                required
-            />
-
-            <div style={{ marginBottom: '1rem' }}>
-                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <span>👥</span> Store Type
-                    </span>
-                </label>
-                <select
-                    value={storeType}
-                    onChange={(e) => setStoreType(e.target.value)}
-                    className="form-input"
-                    style={{ width: '100%' }}
-                >
-                    <option value="Warehouse & Logistics">Warehouse & Logistics</option>
-                    <option value="Retail Shop">Retail Shop</option>
-                    <option value="Godown">Godown</option>
-                    <option value="Branch">Branch</option>
-                    <option value="Distribution Center">Distribution Center</option>
-                </select>
-            </div>
-
-            <Input
-                label="Admin PIN"
-                type="text"
-                value={adminPin}
-                onChange={(e) => setAdminPin(e.target.value)}
-                placeholder="Enter secure PIN"
-            />
-
-            <Input
-                label="Team Capacity"
-                type="number"
-                value={teamCapacity}
-                onChange={(e) => setTeamCapacity(e.target.value)}
-                placeholder="50"
-            />
-
-            <Button
-                type="submit"
-                variant="primary"
-                loading={loading}
-                style={{ width: '100%', marginTop: '1rem' }}
+  return (
+    <AuthLayout
+      title="Create account"
+      description="Start in a few easy steps."
+      asideTitle="Set up your store in a simple way."
+      asideCopy="First create your account. Then add store details if you want."
+      highlights={[
+        { title: 'Step by step', description: 'Personal details first.' },
+        { title: 'Easy join code', description: 'Team members can join with one code.' },
+        { title: 'Mobile friendly', description: 'Works well on phone and desktop.' },
+      ]}
+      footer={
+        <p className="mb-0 text-sm text-neutral-500">
+          Already have an account?{' '}
+          <Link to="/login" className="font-semibold text-neutral-950 transition hover:text-brand-600">
+            Sign in
+          </Link>
+        </p>
+      }
+    >
+      <div className="space-y-6">
+        <div className="grid grid-cols-3 gap-2 rounded-[22px] bg-neutral-100 p-1.5">
+          {[
+            { id: 'admin', label: 'Admin' },
+            { id: 'coadmin', label: 'Co-admin' },
+            { id: 'staff', label: 'Staff' },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => {
+                setActiveTab(tab.id);
+                setStep(1);
+                setError('');
+              }}
+              className={`rounded-[18px] px-3 py-2.5 text-sm font-medium transition ${
+                activeTab === tab.id ? 'bg-white text-neutral-950 shadow-sm' : 'text-neutral-500 hover:text-neutral-950'
+              }`}
             >
-                Create Organization
-            </Button>
-        </>
-    );
-
-    const renderCoAdminForm = () => (
-        <>
-            <Input
-                label="Full Name"
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="John Doe"
-                required
-            />
-
-            <Input
-                label="Email Address"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                required
-            />
-
-            <Input
-                label="Password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                required
-            />
-
-            <Input
-                label="Confirm Password"
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="••••••••"
-                required
-            />
-
-            <Input
-                label="Admin PIN Code"
-                type="text"
-                value={adminCode}
-                onChange={(e) => setAdminCode(e.target.value)}
-                placeholder="Enter the admin's PIN to join their store"
-                required
-            />
-
-            <Button
-                type="submit"
-                variant="primary"
-                loading={loading}
-                style={{ width: '100%', marginTop: '1rem' }}
-            >
-                Join Store as Co-Admin
-            </Button>
-        </>
-    );
-
-    const renderStaffForm = () => (
-        <>
-            <Input
-                label="Full Name"
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Floor Soff"
-                required
-            />
-
-            <Input
-                label="Email Address"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="john.doe@email.com"
-                required
-            />
-
-            <Input
-                label="Password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                required
-            />
-
-            <Input
-                label="Confirm Password"
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="••••••••"
-                required
-            />
-
-            <Input
-                label="Admin PIN Code"
-                type="text"
-                value={adminCode}
-                onChange={(e) => setAdminCode(e.target.value)}
-                placeholder="Enter the admin's PIN to join their store"
-                required
-            />
-
-            <Button
-                type="submit"
-                variant="primary"
-                loading={loading}
-                style={{ width: '100%', marginTop: '1rem' }}
-            >
-                Join Store as Staff
-            </Button>
-        </>
-    );
-
-    return (
-        <div className="flex justify-center items-center" style={{ minHeight: '100vh', background: 'var(--gradient-primary)' }}>
-            <Card className="animate-slide-in" style={{ maxWidth: '550px', width: '100%', margin: '2rem' }}>
-                <div className="text-center mb-xl">
-                    <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>📦</div>
-                    <h2>Welcome to InventoryPro</h2>
-                    <p>Choose your role and get started</p>
-                </div>
-
-                {/* Tab Navigation */}
-                <div className="tab-container">
-                    <button
-                        className={`tab ${activeTab === 'admin' ? 'active' : ''}`}
-                        onClick={() => setActiveTab('admin')}
-                        type="button"
-                    >
-                        Admin
-                    </button>
-                    <button
-                        className={`tab ${activeTab === 'coadmin' ? 'active' : ''}`}
-                        onClick={() => setActiveTab('coadmin')}
-                        type="button"
-                    >
-                        Co-Admin
-                    </button>
-                    <button
-                        className={`tab ${activeTab === 'staff' ? 'active' : ''}`}
-                        onClick={() => setActiveTab('staff')}
-                        type="button"
-                    >
-                        Staff
-                    </button>
-                </div>
-
-                {error && (
-                    <div className="badge badge-error" style={{ width: '100%', marginBottom: '1rem', padding: '0.75rem' }}>
-                        {error}
-                    </div>
-                )}
-
-                <form onSubmit={handleSubmit}>
-                    <div className="tab-content">
-                        {activeTab === 'admin' && renderAdminForm()}
-                        {activeTab === 'coadmin' && renderCoAdminForm()}
-                        {activeTab === 'staff' && renderStaffForm()}
-                    </div>
-                </form>
-
-                <div className="text-center mt-lg">
-                    <p>
-                        Already have an account?{' '}
-                        <Link to="/login" style={{ fontWeight: 600 }}>
-                            Sign In
-                        </Link>
-                    </p>
-                </div>
-            </Card>
+              {tab.label}
+            </button>
+          ))}
         </div>
-    );
+
+        <div className="rounded-[24px] border border-neutral-100 bg-neutral-50/80 p-5">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="mb-1 text-sm font-semibold text-neutral-950">{formTitle}</p>
+              <p className="mb-0 text-sm text-neutral-500">
+                {activeTab === 'admin'
+                  ? step === 1
+                    ? 'Step 1 of 2'
+                    : 'Step 2 of 2'
+                  : 'Use the code from your admin.'}
+              </p>
+            </div>
+            {activeTab === 'admin' ? (
+              <div className="flex items-center gap-2">
+                {[1, 2].map((item) => (
+                  <span key={item} className={`h-2.5 w-10 rounded-full ${step >= item ? 'bg-neutral-950' : 'bg-neutral-200'}`} />
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        {error ? (
+          <div className="rounded-[20px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>
+        ) : null}
+
+        <form className="space-y-5" onSubmit={handlePrimary}>
+          <div className="grid gap-4 rounded-[24px] border border-neutral-100 bg-neutral-50/80 p-5">
+            <div>
+              <h3 className="text-base font-semibold text-neutral-950">Your account</h3>
+              <p className="mt-1 text-sm text-neutral-500">Enter your basic details.</p>
+            </div>
+            <Input
+              label="Full name"
+              icon={User2}
+              placeholder="Anuj Jain"
+              value={form.name}
+              onChange={(event) => setForm({ ...form, name: event.target.value })}
+              required
+            />
+            <Input
+              label="Email"
+              type="email"
+              icon={Mail}
+              placeholder="you@company.com"
+              value={form.email}
+              onChange={(event) => setForm({ ...form, email: event.target.value })}
+              required
+            />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Input
+                label="Password"
+                type="password"
+                icon={LockKeyhole}
+                placeholder="Minimum 6 characters"
+                value={form.password}
+                onChange={(event) => setForm({ ...form, password: event.target.value })}
+                required
+              />
+              {activeTab !== 'admin' ? (
+                <Input
+                  label="Confirm password"
+                  type="password"
+                  icon={LockKeyhole}
+                  placeholder="Re-enter password"
+                  value={form.confirmPassword}
+                  onChange={(event) => setForm({ ...form, confirmPassword: event.target.value })}
+                  required
+                />
+              ) : null}
+            </div>
+          </div>
+
+          {activeTab === 'admin' && step === 2 ? (
+            <div className="grid gap-4 rounded-[24px] border border-neutral-100 bg-neutral-50/80 p-5">
+              <div>
+                <h3 className="text-base font-semibold text-neutral-950">Organization details</h3>
+                <p className="mt-1 text-sm text-neutral-500">You can fill this now or later.</p>
+              </div>
+              <Input
+                label="Organization name"
+                icon={Building2}
+                placeholder="Inventory Management HQ"
+                value={form.storeName}
+                onChange={(event) => setForm({ ...form, storeName: event.target.value })}
+                hint="Optional"
+              />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Select
+                  label="Store type"
+                  value={form.storeType}
+                  onChange={(event) => setForm({ ...form, storeType: event.target.value })}
+                  options={STORE_TYPES.map((type) => ({ value: type, label: type }))}
+                />
+                <Input
+                  label="Team capacity"
+                  type="number"
+                  icon={Users}
+                  min="1"
+                  placeholder="50"
+                  value={form.teamCapacity}
+                  onChange={(event) => setForm({ ...form, teamCapacity: event.target.value })}
+                />
+              </div>
+              <Input
+                label="Admin code"
+                icon={KeyRound}
+                placeholder="Optional invite code for teammates"
+                value={form.adminPin}
+                onChange={(event) => setForm({ ...form, adminPin: event.target.value })}
+                hint="Optional"
+              />
+            </div>
+          ) : null}
+
+          {activeTab !== 'admin' ? (
+            <div className="grid gap-4 rounded-[24px] border border-neutral-100 bg-neutral-50/80 p-5">
+              <div>
+                <h3 className="text-base font-semibold text-neutral-950">Join organization</h3>
+                <p className="mt-1 text-sm text-neutral-500">Ask your admin for the code.</p>
+              </div>
+              <Input
+                label="Admin code"
+                icon={KeyRound}
+                placeholder="Paste the workspace code"
+                value={form.adminCode}
+                onChange={(event) => setForm({ ...form, adminCode: event.target.value })}
+                required
+              />
+            </div>
+          ) : null}
+
+          <div className="flex flex-col gap-3 sm:flex-row sm:justify-between">
+            {activeTab === 'admin' && step === 2 ? (
+              <Button type="button" variant="ghost" icon={ArrowLeft} onClick={() => setStep(1)}>
+                Back
+              </Button>
+            ) : (
+              <span />
+            )}
+
+            <div className="flex flex-col gap-3 sm:flex-row">
+              {activeTab === 'admin' && step === 1 ? (
+                <Button type="submit" iconRight={ArrowRight} disabled={!basicValid}>
+                  Continue to workspace setup
+                </Button>
+              ) : (
+                <>
+                  {activeTab === 'admin' ? (
+                    <Button type="submit" variant="secondary" disabled={loading}>
+                      Skip for now
+                    </Button>
+                  ) : null}
+                  <Button type="submit" loading={loading} iconRight={ArrowRight}>
+                    {activeTab === 'admin' ? 'Create workspace' : 'Join workspace'}
+                  </Button>
+                </>
+              )}
+            </div>
+          </div>
+        </form>
+      </div>
+    </AuthLayout>
+  );
 };
