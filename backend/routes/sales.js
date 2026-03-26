@@ -92,9 +92,6 @@ router.post('/',
     requireStoreAccess(),
     injectStoreMetadata,
     async (req, res) => {
-        const session = await mongoose.startSession();
-        session.startTransaction();
-
         try {
             const {
                 productId,
@@ -104,36 +101,32 @@ router.post('/',
             } = req.body;
 
             if (!productId || !quantity || sellingPrice === undefined) {
-                await session.abortTransaction();
                 return res.status(400).json({
                     error: 'Product ID, quantity, and selling price are required'
                 });
             }
 
             if (quantity <= 0) {
-                await session.abortTransaction();
                 return res.status(400).json({ error: 'Quantity must be greater than 0' });
             }
 
-            // 1. Check product exists and has sufficient stock (within transaction)
+            // 1. Check product exists and has sufficient stock
             const product = await Product.findOne({
                 _id: productId,
                 storeId: req.storeId
-            }).session(session);
+            });
 
             if (!product) {
-                await session.abortTransaction();
                 return res.status(404).json({ error: 'Product not found in this store' });
             }
 
             if (product.stock < quantity) {
-                await session.abortTransaction();
                 return res.status(400).json({
                     error: `Insufficient stock. Available: ${product.stock}, Requested: ${quantity}`
                 });
             }
 
-            // 2. Create sale (within transaction)
+            // 2. Create sale
             const saleData = {
                 storeId: req.storeId,
                 productId,
@@ -144,31 +137,25 @@ router.post('/',
                 createdBy: req.user.id
             };
 
-            const sale = await Sale.create([saleData], { session });
+            const sale = await Sale.create(saleData);
 
-            // 3. Update product stock (within transaction)
+            // 3. Update product stock
             await Product.findByIdAndUpdate(
                 productId,
                 { $inc: { stock: -quantity } },
-                { session, runValidators: true }
+                { runValidators: true }
             );
 
-            // Commit transaction
-            await session.commitTransaction();
-
             // Populate and return
-            const populatedSale = await Sale.findById(sale[0]._id)
+            const populatedSale = await Sale.findById(sale._id)
                 .populate('productId', 'name sku')
                 .populate('createdBy', 'name email');
 
             res.status(201).json(populatedSale);
 
         } catch (error) {
-            await session.abortTransaction();
             console.error('Create sale error:', error);
             res.status(500).json({ error: 'Failed to create sale' });
-        } finally {
-            session.endSession();
         }
     });
 
@@ -181,40 +168,31 @@ router.delete('/:id',
     authenticate,
     requireStoreAccess(['admin', 'coadmin']),
     async (req, res) => {
-        const session = await mongoose.startSession();
-        session.startTransaction();
-
         try {
             // Find sale
             const sale = await Sale.findOne({
                 _id: req.params.id,
                 storeId: req.storeId
-            }).session(session);
+            });
 
             if (!sale) {
-                await session.abortTransaction();
                 return res.status(404).json({ error: 'Sale not found' });
             }
 
             // Restore stock
             await Product.findByIdAndUpdate(
                 sale.productId,
-                { $inc: { stock: sale.quantity } },
-                { session }
+                { $inc: { stock: sale.quantity } }
             );
 
             // Delete sale
-            await Sale.findByIdAndDelete(sale._id).session(session);
+            await Sale.findByIdAndDelete(sale._id);
 
-            await session.commitTransaction();
             res.json({ message: 'Sale deleted and stock restored successfully' });
 
         } catch (error) {
-            await session.abortTransaction();
             console.error('Delete sale error:', error);
             res.status(500).json({ error: 'Failed to delete sale' });
-        } finally {
-            session.endSession();
         }
     });
 

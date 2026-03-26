@@ -76,9 +76,6 @@ router.post('/',
     requireStoreAccess(['admin', 'coadmin']),
     injectStoreMetadata,
     async (req, res) => {
-        const session = await mongoose.startSession();
-        session.startTransaction();
-
         try {
             const {
                 productId,
@@ -88,29 +85,26 @@ router.post('/',
             } = req.body;
 
             if (!productId || !quantity || costPrice === undefined) {
-                await session.abortTransaction();
                 return res.status(400).json({
                     error: 'Product ID, quantity, and cost price are required'
                 });
             }
 
             if (quantity <= 0) {
-                await session.abortTransaction();
                 return res.status(400).json({ error: 'Quantity must be greater than 0' });
             }
 
-            // 1. Check product exists (within transaction)
+            // 1. Check product exists
             const product = await Product.findOne({
                 _id: productId,
                 storeId: req.storeId
-            }).session(session);
+            });
 
             if (!product) {
-                await session.abortTransaction();
                 return res.status(404).json({ error: 'Product not found in this store' });
             }
 
-            // 2. Create purchase (within transaction)
+            // 2. Create purchase
             const purchaseData = {
                 storeId: req.storeId,
                 productId,
@@ -121,34 +115,28 @@ router.post('/',
                 createdBy: req.user.id
             };
 
-            const purchase = await Purchase.create([purchaseData], { session });
+            const purchase = await Purchase.create(purchaseData);
 
-            // 3. Update product stock (within transaction)
+            // 3. Update product stock
             await Product.findByIdAndUpdate(
                 productId,
                 {
                     $inc: { stock: quantity },
                     costPrice: costPrice // Update cost price with latest purchase
                 },
-                { session, runValidators: true }
+                { runValidators: true }
             );
 
-            // Commit transaction
-            await session.commitTransaction();
-
             // Populate and return
-            const populatedPurchase = await Purchase.findById(purchase[0]._id)
+            const populatedPurchase = await Purchase.findById(purchase._id)
                 .populate('productId', 'name sku')
                 .populate('createdBy', 'name email');
 
             res.status(201).json(populatedPurchase);
 
         } catch (error) {
-            await session.abortTransaction();
             console.error('Create purchase error:', error);
             res.status(500).json({ error: 'Failed to create purchase' });
-        } finally {
-            session.endSession();
         }
     });
 
@@ -161,26 +149,21 @@ router.delete('/:id',
     authenticate,
     requireStoreAccess(['admin', 'coadmin']),
     async (req, res) => {
-        const session = await mongoose.startSession();
-        session.startTransaction();
-
         try {
             // Find purchase
             const purchase = await Purchase.findOne({
                 _id: req.params.id,
                 storeId: req.storeId
-            }).session(session);
+            });
 
             if (!purchase) {
-                await session.abortTransaction();
                 return res.status(404).json({ error: 'Purchase not found' });
             }
 
             // Check if we can reduce stock (must not go negative)
-            const product = await Product.findById(purchase.productId).session(session);
+            const product = await Product.findById(purchase.productId);
 
             if (product.stock < purchase.quantity) {
-                await session.abortTransaction();
                 return res.status(400).json({
                     error: `Cannot delete purchase. Stock would become negative. Current stock: ${product.stock}`
                 });
@@ -189,22 +172,17 @@ router.delete('/:id',
             // Reduce stock
             await Product.findByIdAndUpdate(
                 purchase.productId,
-                { $inc: { stock: -purchase.quantity } },
-                { session }
+                { $inc: { stock: -purchase.quantity } }
             );
 
             // Delete purchase
-            await Purchase.findByIdAndDelete(purchase._id).session(session);
+            await Purchase.findByIdAndDelete(purchase._id);
 
-            await session.commitTransaction();
             res.json({ message: 'Purchase deleted and stock adjusted successfully' });
 
         } catch (error) {
-            await session.abortTransaction();
             console.error('Delete purchase error:', error);
             res.status(500).json({ error: 'Failed to delete purchase' });
-        } finally {
-            session.endSession();
         }
     });
 
