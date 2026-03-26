@@ -1,55 +1,28 @@
+import { ArrowRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
 export const GuestBanner = () => {
-    const { isGuest } = useAuth();
-    const navigate = useNavigate();
+  const { isGuest } = useAuth();
+  const navigate = useNavigate();
 
-    if (!isGuest) return null;
+  if (!isGuest) return null;
 
-    return (
-        <div
-            id="guest-banner"
-            style={{
-                background: 'linear-gradient(135deg, #f59e0b, #f97316)',
-                color: '#fff',
-                padding: '0.65rem 1.25rem',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                flexWrap: 'wrap',
-                gap: '0.5rem',
-                fontSize: '0.9rem',
-                fontWeight: 500,
-                zIndex: 1000,
-                position: 'sticky',
-                top: 0,
-                boxShadow: '0 2px 8px rgba(245, 158, 11, 0.3)'
-            }}
-        >
-            <span>
-                ⚠️ You're in <strong>guest mode</strong> — all data is temporary and will be deleted in 24 hours.
-            </span>
-            <button
-                onClick={() => navigate('/signup')}
-                style={{
-                    background: '#fff',
-                    color: '#f97316',
-                    border: 'none',
-                    borderRadius: '6px',
-                    padding: '0.4rem 1rem',
-                    fontWeight: 700,
-                    fontSize: '0.85rem',
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap',
-                    transition: 'transform 0.15s ease'
-                }}
-                onMouseEnter={(e) => e.target.style.transform = 'scale(1.05)'}
-                onMouseLeave={(e) => e.target.style.transform = 'scale(1)'}
-                id="guest-signup-cta"
-            >
-                Sign up to save your data →
-            </button>
+  return (
+    <div className="sticky top-0 z-50 border-b border-amber-200 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 px-4 py-3 text-white shadow-lg shadow-amber-500/20">
+      <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3 text-sm font-medium">
+          <span>You are in guest mode. Demo data is temporary and expires within 24 hours.</span>
         </div>
-    );
+        <button
+          type="button"
+          onClick={() => navigate('/signup')}
+          className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-semibold text-amber-700 transition hover:-translate-y-0.5 hover:bg-amber-50"
+        >
+          Save your workspace
+          <ArrowRight className="h-4 w-4" />
+        </button>
+      </div>
+    </div>
+  );
 };

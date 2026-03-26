@@ -1,33 +1,23 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { Navbar } from './components/Navbar';
-import { Sidebar } from './components/Sidebar';
-import { BottomNav } from './components/BottomNav';
+import { AppShell } from './components/AppShell';
 import { LoadingSpinner } from './components/LoadingSpinner';
-import { GuestBanner } from './components/GuestBanner';
-import { Login } from './pages/Login';
-import { Signup } from './pages/Signup';
+import { ToastProvider } from './components/ToastProvider';
 import { Dashboard } from './pages/Dashboard';
+import { Bills } from './pages/Bills';
+import { Login } from './pages/Login';
 import { Products } from './pages/Products';
-import { Sales } from './pages/Sales';
 import { Purchases } from './pages/Purchases';
 import { Reports } from './pages/Reports';
+import { Sales } from './pages/Sales';
+import { Signup } from './pages/Signup';
 
-// Protected Route Component
 const ProtectedRoute = ({ children, adminOnly = false }) => {
   const { user, currentStore, loading } = useAuth();
 
   if (loading) return <LoadingSpinner />;
-
-  // Allow access if user is authenticated
   if (!user) return <Navigate to="/login" replace />;
-
-  // Require a current store
-  if (!currentStore) {
-    return <Navigate to="/login" replace />;
-  }
-
-  // Check admin access for admin-only routes
+  if (!currentStore) return <Navigate to="/login" replace />;
   if (adminOnly && currentStore.role !== 'admin' && currentStore.role !== 'coadmin') {
     return <Navigate to="/dashboard" replace />;
   }
@@ -35,28 +25,10 @@ const ProtectedRoute = ({ children, adminOnly = false }) => {
   return children;
 };
 
-// Layout Component
-const Layout = ({ children }) => {
-  return (
-    <div className="app-layout">
-      <GuestBanner />
-      <Navbar />
-      <Sidebar />
-      <main className="main-content">
-        {children}
-      </main>
-      <BottomNav />
-    </div>
-  );
-};
-
-// Public Route (redirect to dashboard if logged in)
 const PublicRoute = ({ children }) => {
   const { user, currentStore, loading } = useAuth();
 
   if (loading) return <LoadingSpinner />;
-
-  // Redirect to dashboard if user is logged in AND has a current store
   if (user && currentStore) return <Navigate to="/dashboard" replace />;
 
   return children;
@@ -66,7 +38,6 @@ function AppRoutes() {
   return (
     <Router>
       <Routes>
-        {/* Public Routes */}
         <Route
           path="/login"
           element={
@@ -78,65 +49,50 @@ function AppRoutes() {
         <Route
           path="/signup"
           element={
-            <Signup />
+            <PublicRoute>
+              <Signup />
+            </PublicRoute>
           }
         />
 
-        {/* Protected Routes */}
         <Route
-          path="/dashboard"
           element={
             <ProtectedRoute>
-              <Layout>
-                <Dashboard />
-              </Layout>
+              <AppShell />
             </ProtectedRoute>
           }
-        />
-        <Route
-          path="/products"
-          element={
-            <ProtectedRoute>
-              <Layout>
-                <Products />
-              </Layout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/sales"
-          element={
-            <ProtectedRoute>
-              <Layout>
-                <Sales />
-              </Layout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/purchases"
-          element={
-            <ProtectedRoute adminOnly>
-              <Layout>
+        >
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/products" element={<Products />} />
+          <Route path="/sales" element={<Sales />} />
+          <Route
+            path="/purchases"
+            element={
+              <ProtectedRoute adminOnly>
                 <Purchases />
-              </Layout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/reports"
-          element={
-            <ProtectedRoute adminOnly>
-              <Layout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/reports"
+            element={
+              <ProtectedRoute adminOnly>
                 <Reports />
-              </Layout>
-            </ProtectedRoute>
-          }
-        />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/bills"
+            element={
+              <ProtectedRoute adminOnly>
+                <Bills />
+              </ProtectedRoute>
+            }
+          />
+        </Route>
 
-        {/* Default Route */}
-        <Route path="/" element={<Navigate to="/dashboard" />} />
-        <Route path="*" element={<Navigate to="/dashboard" />} />
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </Router>
   );
@@ -145,10 +101,11 @@ function AppRoutes() {
 function App() {
   return (
     <AuthProvider>
-      <AppRoutes />
+      <ToastProvider>
+        <AppRoutes />
+      </ToastProvider>
     </AuthProvider>
   );
 }
 
 export default App;
-
