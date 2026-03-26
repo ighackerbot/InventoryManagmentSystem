@@ -1,215 +1,244 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { AlertTriangle, ArrowRightLeft, Box, IndianRupee, ShoppingCart, TrendingUp } from 'lucide-react';
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
+import { Card } from '../components/Card';
+import { EmptyState } from '../components/EmptyState';
+import { PageHeader } from '../components/PageHeader';
+import { StatCard } from '../components/StatCard';
+import { useToast } from '../components/ToastProvider';
 import { useAuth } from '../contexts/AuthContext';
 import { reportsAPI } from '../utils/api';
-import { Card } from '../components/Card';
-import {
-    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-    PieChart, Pie, Cell, ComposedChart, Line
-} from 'recharts';
+import { formatCompactCurrency, formatCurrency, formatDate, formatNumber } from '../lib/utils';
+
+const DashboardSkeleton = () => (
+  <div className="space-y-6 animate-pulse">
+    <div className="h-24 rounded-[32px] bg-white/70" />
+    <div className="grid gap-4 xl:grid-cols-4 md:grid-cols-2">
+      {Array.from({ length: 4 }).map((_, index) => (
+        <div key={index} className="h-40 rounded-[28px] bg-white/80" />
+      ))}
+    </div>
+    <div className="grid gap-4 xl:grid-cols-[1.3fr_1fr]">
+      <div className="h-96 rounded-[28px] bg-white/80" />
+      <div className="h-96 rounded-[28px] bg-white/80" />
+    </div>
+  </div>
+);
 
 export const Dashboard = () => {
-    const { currentStore, isGuest } = useAuth();
-    const [stats, setStats] = useState({
-        totalSales: 0,
-        totalPurchases: 0,
-        currentStock: 0,
-        netRevenue: 0,
-        recentSales: [],
-        recentPurchases: [],
-        topProducts: [],
-        lowStockProducts: []
-    });
-    const [loading, setLoading] = useState(true);
+  const { currentStore, isGuest, isAdmin } = useAuth();
+  const toast = useToast();
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [stats, setStats] = useState(null);
 
-    useEffect(() => {
-        if (isGuest || currentStore) {
-            fetchStats();
-        }
-    }, [currentStore, isGuest]);
+  useEffect(() => {
+    if (!currentStore && !isGuest) return;
 
-    const fetchStats = async () => {
-        try {
-            setLoading(true);
-            // Both guests and normal users use reportsAPI now (guests use temporary tokens)
-            const { data } = await reportsAPI.getDashboard();
-            setStats(data || {});
-        } catch (error) {
-            console.error('Error fetching stats:', error);
-            alert('Failed to load dashboard: ' + (error.response?.data?.error || error.message));
-        } finally {
-            setLoading(false);
-        }
+    const fetchDashboard = async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const reportResponse = await reportsAPI.getDashboard();
+        setStats(reportResponse.data);
+      } catch (err) {
+        setError(err.response?.data?.error || 'Failed to load dashboard data.');
+      } finally {
+        setLoading(false);
+      }
     };
 
-    const formatCurrency = (amount) => {
-        return new Intl.NumberFormat('en-IN', {
-            style: 'currency',
-            currency: 'INR',
-            maximumFractionDigits: 0
-        }).format(amount || 0);
-    };
+    fetchDashboard();
+  }, [currentStore, isGuest, isAdmin]);
 
-    if (loading) {
-        return <div className="flex justify-center p-xl"><div className="spinner"></div></div>;
-    }
+  if (loading) return <DashboardSkeleton />;
 
-    if (!isGuest && !currentStore) {
-        return (
-            <div className="container mt-lg">
-                <h1>📊 Dashboard</h1>
-                <Card className="text-center">
-                    <p>Please select a store to view the dashboard</p>
-                </Card>
-            </div>
-        );
-    }
-
-    // Prepare chart data
-    const salesByProduct = (stats.topProducts || []).map(p => ({
-        name: p.name,
-        sales: p.totalQuantity,
-        revenue: p.totalRevenue
-    }));
-
-    const stockByProduct = (stats.lowStockProducts || []).map(p => ({
-        name: p.name,
-        value: p.stock
-    }));
-
+  if (error) {
     return (
-        <div className="container mt-lg">
-            <h1>📊 Dashboard - {isGuest ? 'Guest Demo Store' : currentStore.name}</h1>
-
-            <div className="dashboard-grid">
-                <div className="stat-card">
-                    <div className="stat-value">{formatCurrency(stats.totalSales)}</div>
-                    <div className="stat-label">Total Sales</div>
-                </div>
-                <div className="stat-card" style={{ background: 'var(--gradient-accent)' }}>
-                    <div className="stat-value">{formatCurrency(stats.totalPurchases)}</div>
-                    <div className="stat-label">Total Purchases</div>
-                </div>
-                <div className="stat-card" style={{ background: stats.netRevenue >= 0 ? '#10B981' : '#EF4444' }}>
-                    <div className="stat-value">{formatCurrency(stats.netRevenue)}</div>
-                    <div className="stat-label">Net Revenue</div>
-                </div>
-                <div className="stat-card" style={{ background: '#F59E0B' }}>
-                    <div className="stat-value">{stats.currentStock || 0}</div>
-                    <div className="stat-label">Current Stock Units</div>
-                </div>
-            </div>
-
-            {/* Charts Section */}
-            <div className="grid gap-lg mt-xl" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(450px, 1fr))' }}>
-                <Card>
-                    <h2 className="text-center mb-lg">Top Products by Sales</h2>
-                    {salesByProduct.length > 0 ? (
-                        <div style={{ height: '300px' }}>
-                            <ResponsiveContainer width="100%" height="100%">
-                                <ComposedChart data={salesByProduct} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
-                                    <CartesianGrid strokeDasharray="3 3" />
-                                    <XAxis dataKey="name" angle={-45} textAnchor="end" height={80} interval={0} tick={{ fontSize: 10 }} />
-                                    <YAxis yAxisId="left" orientation="left" />
-                                    <YAxis yAxisId="right" orientation="right" />
-                                    <Tooltip formatter={(value, name) => [name === 'revenue' ? formatCurrency(value) : value, name === 'revenue' ? 'Revenue (₹)' : 'Units Sold']} />
-                                    <Legend />
-                                    <Bar yAxisId="left" dataKey="sales" name="Units Sold" fill="#8884d8" />
-                                    <Line yAxisId="right" type="monotone" dataKey="revenue" name="Revenue (₹)" stroke="#82ca9d" strokeWidth={2} />
-                                </ComposedChart>
-                            </ResponsiveContainer>
-                        </div>
-                    ) : <p className="text-center text-gray-500">No sales data to display</p>}
-                </Card>
-
-                <Card>
-                    <h2 className="text-center mb-lg">Low Stock Products</h2>
-                    {stockByProduct.length > 0 ? (
-                        <div style={{ height: '300px' }}>
-                            <ResponsiveContainer width="100%" height="100%">
-                                <PieChart>
-                                    <Pie
-                                        data={stockByProduct}
-                                        cx="50%"
-                                        cy="50%"
-                                        innerRadius={60}
-                                        outerRadius={100}
-                                        fill="#8884d8"
-                                        paddingAngle={2}
-                                        dataKey="value"
-                                        label={({ name, value }) => `${name}: ${value}`}
-                                    >
-                                        {stockByProduct.map((entry, index) => (
-                                            <Cell key={`cell-${index}`} fill={['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d', '#ffc658', '#8dd1e1', '#a4de6c', '#d0ed57'][index % 10]} />
-                                        ))}
-                                    </Pie>
-                                    <Tooltip />
-                                </PieChart>
-                            </ResponsiveContainer>
-                        </div>
-                    ) : <p className="text-center text-gray-500">No low stock products</p>}
-                </Card>
-            </div>
-
-            {/* Recent Activity Section */}
-            <div className="grid gap-lg mt-xl" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))' }}>
-                <div className="card">
-                    <h2 className="mb-md">Recent Sales</h2>
-                    {stats.recentSales?.length > 0 ? (
-                        <div className="table-container" style={{ boxShadow: 'none', background: 'transparent' }}>
-                            <table className="table">
-                                <thead>
-                                    <tr>
-                                        <th>Product</th>
-                                        <th>Amount</th>
-                                        <th>Date</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {stats.recentSales.map(s => (
-                                        <tr key={s._id}>
-                                            <td data-label="Product">{s.productId?.name || 'N/A'}</td>
-                                            <td data-label="Amount" style={{ fontWeight: 600 }}>{formatCurrency(s.totalAmount)}</td>
-                                            <td data-label="Date">{new Date(s.createdAt).toLocaleDateString('en-GB')}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    ) : <p className="text-gray-500">No recent sales</p>}
-                    <div className="mt-md">
-                        <a href="/sales" className="btn btn-sm btn-primary">View All Sales</a>
-                    </div>
-                </div>
-
-                <div className="card">
-                    <h2 className="mb-md">Recent Purchases</h2>
-                    {stats.recentPurchases?.length > 0 ? (
-                        <div className="table-container" style={{ boxShadow: 'none', background: 'transparent' }}>
-                            <table className="table">
-                                <thead>
-                                    <tr>
-                                        <th>Product</th>
-                                        <th>Amount</th>
-                                        <th>Date</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {stats.recentPurchases.map(p => (
-                                        <tr key={p._id}>
-                                            <td data-label="Product">{p.productId?.name || 'N/A'}</td>
-                                            <td data-label="Amount" style={{ fontWeight: 600 }}>{formatCurrency(p.totalAmount)}</td>
-                                            <td data-label="Date">{new Date(p.createdAt).toLocaleDateString('en-GB')}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    ) : <p className="text-gray-500">No recent purchases</p>}
-                    <div className="mt-md">
-                        <a href="/purchases" className="btn btn-sm btn-secondary">View All Purchases</a>
-                    </div>
-                </div>
-            </div>
-        </div>
+      <EmptyState
+        icon={AlertTriangle}
+        tone="error"
+        title="Dashboard unavailable"
+        description={error}
+        action={{ label: 'Retry', onClick: () => window.location.reload() }}
+      />
     );
+  }
+
+  const topProducts = (stats?.topProducts || []).map((item) => ({
+    name: item.name,
+    units: item.totalQuantity,
+    revenue: item.totalRevenue,
+  }));
+  const activity = [
+    ...(stats?.recentSales || []).map((item) => ({
+      id: item._id,
+      type: 'Sale',
+      label: item.productId?.name || 'Product',
+      meta: item.customerName || 'Customer sale',
+      value: formatCurrency(item.totalAmount),
+      date: item.createdAt,
+    })),
+    ...(stats?.recentPurchases || []).map((item) => ({
+      id: item._id,
+      type: 'Purchase',
+      label: item.productId?.name || 'Product',
+      meta: item.supplierName || 'Supplier purchase',
+      value: formatCurrency(item.totalAmount),
+      date: item.createdAt,
+    })),
+  ]
+    .sort((a, b) => new Date(b.date) - new Date(a.date))
+    .slice(0, 6);
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Overview"
+        title={currentStore?.name ? `${currentStore.name} dashboard` : 'Dashboard'}
+        description="See your store in one place."
+      />
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <StatCard
+          icon={IndianRupee}
+          label="Total Sales"
+          value={formatCompactCurrency(stats?.totalSales)}
+          tone="brand"
+        />
+        <StatCard
+          icon={ShoppingCart}
+          label="Total Purchases"
+          value={formatCompactCurrency(stats?.totalPurchases)}
+          tone="warning"
+        />
+        <StatCard
+          icon={TrendingUp}
+          label="Net Revenue"
+          value={formatCompactCurrency(stats?.netRevenue)}
+          tone={stats?.netRevenue >= 0 ? 'success' : 'danger'}
+        />
+        <StatCard
+          icon={Box}
+          label="Current Stock"
+          value={formatNumber(stats?.currentStock)}
+          tone="brand"
+        />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+        <Card>
+          <div className="mb-6">
+              <h2 className="section-title">Top products</h2>
+              <p className="mt-1 text-sm text-neutral-500">Best-selling items.</p>
+          </div>
+          <div className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={topProducts}>
+                <CartesianGrid vertical={false} stroke="#e2e8f0" />
+                <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
+                <YAxis tickLine={false} axisLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
+                <Tooltip content={({ active, payload, label }) => active ? (
+                  <div className="chart-tooltip">
+                    <p className="mb-2 font-semibold text-neutral-950">{label}</p>
+                    {payload?.map((item) => (
+                      <p key={item.dataKey} className="mb-1 text-sm text-neutral-600">
+                        {item.name}: {item.dataKey === 'revenue' ? formatCurrency(item.value) : formatNumber(item.value)}
+                      </p>
+                    ))}
+                  </div>
+                ) : null} />
+                <Bar dataKey="units" name="Units sold" radius={[10, 10, 0, 0]}>
+                  {topProducts.map((entry, index) => (
+                    <Cell key={entry.name} fill={['#2563eb', '#3b82f6', '#60a5fa', '#93c5fd', '#bfdbfe'][index % 5]} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+        <Card>
+          <div className="mb-5 flex items-center justify-between gap-4">
+            <div>
+              <h2 className="section-title">Recent activity</h2>
+              <p className="mt-1 text-sm text-neutral-500">Latest updates.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => toast.info('Use the Sales and Purchases pages to dive deeper into activity.')}
+              className="inline-flex items-center gap-2 text-sm font-medium text-brand-600 transition hover:text-brand-700"
+            >
+              View workflows
+              <ArrowRightLeft className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="space-y-3">
+            {activity.length ? (
+              activity.map((item) => (
+                <div key={item.id} className="flex items-center justify-between gap-4 rounded-[22px] border border-neutral-100 bg-neutral-50/80 px-4 py-4">
+                  <div className="flex items-center gap-4">
+                    <div className={`rounded-2xl p-3 ${item.type === 'Sale' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+                      {item.type === 'Sale' ? <TrendingUp className="h-4 w-4" /> : <ShoppingCart className="h-4 w-4" />}
+                    </div>
+                    <div>
+                      <p className="mb-1 text-sm font-semibold text-neutral-950">{item.label}</p>
+                      <p className="mb-0 text-sm text-neutral-500">{item.type} • {item.meta}</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="mb-1 text-sm font-semibold text-neutral-950">{item.value}</p>
+                    <p className="mb-0 text-xs text-neutral-400">{formatDate(item.date, { hour: 'numeric', minute: '2-digit' })}</p>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <EmptyState title="No activity yet" description="Record your first sale or purchase to unlock activity tracking." />
+            )}
+          </div>
+        </Card>
+
+        <Card>
+          <div className="mb-5">
+              <h2 className="section-title">Low stock alerts</h2>
+              <p className="mt-1 text-sm text-neutral-500">Items to refill soon.</p>
+          </div>
+          <div className="space-y-3">
+            {(stats?.lowStockProducts || []).length ? (
+              stats.lowStockProducts.map((product) => (
+                <div key={product._id} className="rounded-[22px] border border-amber-100 bg-amber-50/80 px-4 py-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="mb-1 text-sm font-semibold text-neutral-950">{product.name}</p>
+                      <p className="mb-0 text-sm text-neutral-500">Threshold: {formatNumber(product.lowStockThreshold)} units</p>
+                    </div>
+                    <div className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-amber-700 ring-1 ring-amber-200">
+                      {formatNumber(product.stock)} left
+                    </div>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <EmptyState
+                icon={Box}
+                title="Inventory looks healthy"
+                description="No low-stock alerts right now. You have enough buffer on tracked products."
+              />
+            )}
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
 };
