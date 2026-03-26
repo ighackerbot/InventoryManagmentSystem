@@ -10,6 +10,7 @@ import productsRoutes from './routes/products.js';
 import purchasesRoutes from './routes/purchases.js';
 import salesRoutes from './routes/sales.js';
 import reportsRoutes from './routes/reports.js';
+import guestRoutes from './routes/guest.js';
 
 dotenv.config();
 
@@ -33,6 +34,7 @@ app.use('/api/products', productsRoutes);
 app.use('/api/purchases', purchasesRoutes);
 app.use('/api/sales', salesRoutes);
 app.use('/api/reports', reportsRoutes);
+app.use('/api/guest', guestRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
