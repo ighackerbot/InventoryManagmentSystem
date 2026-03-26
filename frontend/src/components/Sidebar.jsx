@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 
 export const Sidebar = () => {
     const location = useLocation();
-    const { isAdmin } = useAuth();
+    const { isAdmin, isGuest } = useAuth();
 
     const navItems = [
         { path: '/dashboard', label: '📊 Dashboard', icon: '📊', roles: ['admin', 'coadmin', 'staff'] },
@@ -17,7 +17,7 @@ export const Sidebar = () => {
             <ul className="sidebar-nav">
                 {navItems.map((item) => {
                     // Check if user has access
-                    if (item.roles.includes('admin') && item.roles.includes('coadmin') && !item.roles.includes('staff')) {
+                    if (!isGuest && item.roles.includes('admin') && item.roles.includes('coadmin') && !item.roles.includes('staff')) {
                         if (!isAdmin()) return null;
                     }
 
@@ -39,3 +39,4 @@ export const Sidebar = () => {
         </aside>
     );
 };
+

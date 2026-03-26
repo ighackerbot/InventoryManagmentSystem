@@ -4,6 +4,7 @@ import { Navbar } from './components/Navbar';
 import { Sidebar } from './components/Sidebar';
 import { BottomNav } from './components/BottomNav';
 import { LoadingSpinner } from './components/LoadingSpinner';
+import { GuestBanner } from './components/GuestBanner';
 import { Login } from './pages/Login';
 import { Signup } from './pages/Signup';
 import { Dashboard } from './pages/Dashboard';
@@ -18,10 +19,10 @@ const ProtectedRoute = ({ children, adminOnly = false }) => {
 
   if (loading) return <LoadingSpinner />;
 
+  // Allow access if user is authenticated
   if (!user) return <Navigate to="/login" replace />;
 
-  // If user exists but has no current store, redirect to login
-  // AuthContext will handle clearing if needed
+  // Require a current store
   if (!currentStore) {
     return <Navigate to="/login" replace />;
   }
@@ -38,6 +39,7 @@ const ProtectedRoute = ({ children, adminOnly = false }) => {
 const Layout = ({ children }) => {
   return (
     <div className="app-layout">
+      <GuestBanner />
       <Navbar />
       <Sidebar />
       <main className="main-content">
@@ -54,7 +56,7 @@ const PublicRoute = ({ children }) => {
 
   if (loading) return <LoadingSpinner />;
 
-  // Only redirect to dashboard if user is logged in AND has a current store
+  // Redirect to dashboard if user is logged in AND has a current store
   if (user && currentStore) return <Navigate to="/dashboard" replace />;
 
   return children;
@@ -76,9 +78,7 @@ function AppRoutes() {
         <Route
           path="/signup"
           element={
-            <PublicRoute>
-              <Signup />
-            </PublicRoute>
+            <Signup />
           }
         />
 
@@ -151,3 +151,4 @@ function App() {
 }
 
 export default App;
+

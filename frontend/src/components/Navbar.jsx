@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import StoreSwitcher from './StoreSwitcher';
 
 export const Navbar = () => {
-    const { user, currentStore, signOut } = useAuth();
+    const { user, currentStore, signOut, isGuest } = useAuth();
     const navigate = useNavigate();
 
     const handleSignOut = async () => {
@@ -23,7 +23,19 @@ export const Navbar = () => {
                     Inventory APK
                 </Link>
 
-                {user && (
+                {isGuest ? (
+                    <div className="flex items-center gap-lg">
+                        <span className="badge badge-warning" style={{ background: '#f59e0b', color: '#fff' }}>
+                            GUEST
+                        </span>
+                        <button onClick={() => navigate('/signup')} className="btn btn-sm btn-primary">
+                            Sign Up
+                        </button>
+                        <button onClick={handleSignOut} className="btn btn-sm btn-secondary">
+                            Exit Guest
+                        </button>
+                    </div>
+                ) : user && (
                     <div className="flex items-center gap-lg">
                         <StoreSwitcher />
 
@@ -46,3 +58,4 @@ export const Navbar = () => {
         </nav>
     );
 };
+

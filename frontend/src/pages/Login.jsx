@@ -11,7 +11,8 @@ export const Login = () => {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
-    const { signIn } = useAuth();
+    const [guestLoading, setGuestLoading] = useState(false);
+    const { signIn, continueAsGuest } = useAuth();
     const navigate = useNavigate();
 
     const handleSubmit = async (e) => {
@@ -20,13 +21,25 @@ export const Login = () => {
         setLoading(true);
 
         try {
-            // Pass role information to signIn if needed for backend differentiation
             await signIn(email, password, activeTab);
             navigate('/dashboard');
         } catch (err) {
             setError(err.response?.data?.error || err.message || 'Failed to sign in');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleGuest = async () => {
+        setError('');
+        setGuestLoading(true);
+        try {
+            await continueAsGuest();
+            navigate('/dashboard');
+        } catch (err) {
+            setError(err.response?.data?.error || err.message || 'Failed to start guest session');
+        } finally {
+            setGuestLoading(false);
         }
     };
 
@@ -111,6 +124,35 @@ export const Login = () => {
                         </Button>
                     </div>
                 </form>
+
+                {/* Guest Mode Divider */}
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '1rem',
+                    margin: '1.5rem 0',
+                    color: 'var(--text-secondary, #888)'
+                }}>
+                    <div style={{ flex: 1, height: '1px', background: 'var(--border-color, #333)' }} />
+                    <span style={{ fontSize: '0.85rem', fontWeight: 500, whiteSpace: 'nowrap' }}>or</span>
+                    <div style={{ flex: 1, height: '1px', background: 'var(--border-color, #333)' }} />
+                </div>
+
+                <Button
+                    type="button"
+                    variant="secondary"
+                    loading={guestLoading}
+                    onClick={handleGuest}
+                    style={{
+                        width: '100%',
+                        background: 'linear-gradient(135deg, #f59e0b22, #f9731622)',
+                        border: '1px solid #f59e0b55',
+                        color: '#f59e0b'
+                    }}
+                    id="continue-as-guest-btn"
+                >
+                    👤 Continue as Guest
+                </Button>
 
                 <div className="text-center mt-lg">
                     <p>

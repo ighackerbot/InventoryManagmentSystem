@@ -8,7 +8,7 @@ import {
 } from 'recharts';
 
 export const Dashboard = () => {
-    const { currentStore } = useAuth();
+    const { currentStore, isGuest } = useAuth();
     const [stats, setStats] = useState({
         totalSales: 0,
         totalPurchases: 0,
@@ -22,14 +22,15 @@ export const Dashboard = () => {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        if (currentStore) {
+        if (isGuest || currentStore) {
             fetchStats();
         }
-    }, [currentStore]);
+    }, [currentStore, isGuest]);
 
     const fetchStats = async () => {
         try {
             setLoading(true);
+            // Both guests and normal users use reportsAPI now (guests use temporary tokens)
             const { data } = await reportsAPI.getDashboard();
             setStats(data || {});
         } catch (error) {
@@ -52,7 +53,7 @@ export const Dashboard = () => {
         return <div className="flex justify-center p-xl"><div className="spinner"></div></div>;
     }
 
-    if (!currentStore) {
+    if (!isGuest && !currentStore) {
         return (
             <div className="container mt-lg">
                 <h1>📊 Dashboard</h1>
@@ -77,7 +78,7 @@ export const Dashboard = () => {
 
     return (
         <div className="container mt-lg">
-            <h1>📊 Dashboard - {currentStore.name}</h1>
+            <h1>📊 Dashboard - {isGuest ? 'Guest Demo Store' : currentStore.name}</h1>
 
             <div className="dashboard-grid">
                 <div className="stat-card">

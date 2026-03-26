@@ -1,7 +1,9 @@
 import { Link, useLocation } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 
 export const BottomNav = () => {
     const location = useLocation();
+    const { isGuest } = useAuth();
 
     const isActive = (path) => location.pathname === path;
 
@@ -27,3 +29,4 @@ export const BottomNav = () => {
         </div>
     );
 };
+
