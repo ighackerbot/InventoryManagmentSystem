@@ -18,83 +18,94 @@ router.get('/', authenticate, requireStoreAccess(), async (req, res) => {
         // aggregate() does NOT auto-cast strings like find() does
         const storeId = new mongoose.Types.ObjectId(req.storeId);
 
-        // 1. Calculate total stock
-        const stockAgg = await Product.aggregate([
-            { $match: { storeId: storeId } },
-            { $group: { _id: null, current_stock: { $sum: '$stock' } } }
+        // Run ALL queries in parallel for maximum performance
+        const [
+            stockAgg,
+            salesAgg,
+            purchasesAgg,
+            recentSales,
+            recentPurchases,
+            topProducts,
+            lowStockProducts
+        ] = await Promise.all([
+            // 1. Total stock
+            Product.aggregate([
+                { $match: { storeId: storeId } },
+                { $group: { _id: null, current_stock: { $sum: '$stock' } } }
+            ]),
+
+            // 2. Total sales
+            Sale.aggregate([
+                { $match: { storeId: storeId } },
+                { $group: { _id: null, total_sales: { $sum: '$totalAmount' } } }
+            ]),
+
+            // 3. Total purchases
+            Purchase.aggregate([
+                { $match: { storeId: storeId } },
+                { $group: { _id: null, total_purchases: { $sum: '$totalAmount' } } }
+            ]),
+
+            // 4. Recent Sales
+            Sale.find({ storeId: req.storeId })
+                .populate('productId', 'name')
+                .populate('createdBy', 'name')
+                .sort({ createdAt: -1 })
+                .limit(5)
+                .lean(),
+
+            // 5. Recent Purchases
+            Purchase.find({ storeId: req.storeId })
+                .populate('productId', 'name')
+                .populate('createdBy', 'name')
+                .sort({ createdAt: -1 })
+                .limit(5)
+                .lean(),
+
+            // 6. Top Products by sales
+            Sale.aggregate([
+                { $match: { storeId: storeId } },
+                {
+                    $group: {
+                        _id: '$productId',
+                        totalQuantity: { $sum: '$quantity' },
+                        totalRevenue: { $sum: '$totalAmount' }
+                    }
+                },
+                { $sort: { totalRevenue: -1 } },
+                { $limit: 5 },
+                {
+                    $lookup: {
+                        from: 'products',
+                        localField: '_id',
+                        foreignField: '_id',
+                        as: 'product'
+                    }
+                },
+                { $unwind: '$product' },
+                {
+                    $project: {
+                        name: '$product.name',
+                        totalQuantity: 1,
+                        totalRevenue: 1
+                    }
+                }
+            ]),
+
+            // 7. Low Stock Products
+            Product.find({
+                storeId: req.storeId,
+                $expr: { $lte: ['$stock', '$lowStockThreshold'] }
+            })
+                .select('name stock lowStockThreshold')
+                .sort({ stock: 1 })
+                .limit(10)
+                .lean()
         ]);
+
         const currentStock = stockAgg[0]?.current_stock || 0;
-
-        // 2. Calculate total sales
-        const salesAgg = await Sale.aggregate([
-            { $match: { storeId: storeId } },
-            { $group: { _id: null, total_sales: { $sum: '$totalAmount' } } }
-        ]);
         const totalSales = salesAgg[0]?.total_sales || 0;
-
-        // 3. Calculate total purchases
-        const purchasesAgg = await Purchase.aggregate([
-            { $match: { storeId: storeId } },
-            { $group: { _id: null, total_purchases: { $sum: '$totalAmount' } } }
-        ]);
         const totalPurchases = purchasesAgg[0]?.total_purchases || 0;
-
-        // 4. Recent Sales
-        const recentSales = await Sale.find({ storeId: req.storeId })
-            .populate('productId', 'name')
-            .populate('createdBy', 'name')
-            .sort({ createdAt: -1 })
-            .limit(5)
-            .lean();
-
-        // 5. Recent Purchases
-        const recentPurchases = await Purchase.find({ storeId: req.storeId })
-            .populate('productId', 'name')
-            .populate('createdBy', 'name')
-            .sort({ createdAt: -1 })
-            .limit(5)
-            .lean();
-
-        // 6. Top Products by sales
-        const topProducts = await Sale.aggregate([
-            { $match: { storeId: storeId } },
-            {
-                $group: {
-                    _id: '$productId',
-                    totalQuantity: { $sum: '$quantity' },
-                    totalRevenue: { $sum: '$totalAmount' }
-                }
-            },
-            { $sort: { totalRevenue: -1 } },
-            { $limit: 5 },
-            {
-                $lookup: {
-                    from: 'products',
-                    localField: '_id',
-                    foreignField: '_id',
-                    as: 'product'
-                }
-            },
-            { $unwind: '$product' },
-            {
-                $project: {
-                    name: '$product.name',
-                    totalQuantity: 1,
-                    totalRevenue: 1
-                }
-            }
-        ]);
-
-        // 7. Low Stock Products
-        const lowStockProducts = await Product.find({
-            storeId: req.storeId,
-            $expr: { $lte: ['$stock', '$lowStockThreshold'] }
-        })
-            .select('name stock lowStockThreshold')
-            .sort({ stock: 1 })
-            .limit(10)
-            .lean();
-
         const netRevenue = totalSales - totalPurchases;
 
         // Return camelCase field names to match Dashboard.jsx expectations
