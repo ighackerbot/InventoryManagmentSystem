@@ -97,6 +97,7 @@ router.post('/',
                 name,
                 sku,
                 description,
+                category,
                 stock,
                 costPrice,
                 sellingPrice,
@@ -114,6 +115,7 @@ router.post('/',
                 name,
                 sku,
                 description,
+                category: category || 'General',
                 stock: stock || 0,
                 costPrice,
                 sellingPrice,
@@ -151,6 +153,7 @@ router.put('/:id',
                 name,
                 sku,
                 description,
+                category,
                 stock,
                 costPrice,
                 sellingPrice,
@@ -161,6 +164,7 @@ router.put('/:id',
             if (name !== undefined) updates.name = name;
             if (sku !== undefined) updates.sku = sku;
             if (description !== undefined) updates.description = description;
+            if (category !== undefined) updates.category = category || 'General';
             if (stock !== undefined) updates.stock = stock;
             if (costPrice !== undefined) updates.costPrice = costPrice;
             if (sellingPrice !== undefined) updates.sellingPrice = sellingPrice;
