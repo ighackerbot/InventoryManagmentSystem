@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react';
-import { authAPI, storesAPI, setCurrentStore, getCurrentStore } from '../utils/api';
+import { authAPI, guestAPI, storesAPI, setCurrentStore, getCurrentStore } from '../utils/api';
 
 const AuthContext = createContext({});
 
@@ -16,6 +16,7 @@ export const AuthProvider = ({ children }) => {
     const [stores, setStores] = useState([]);
     const [currentStore, setCurrentStoreState] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [isGuest, setIsGuest] = useState(false);
 
     useEffect(() => {
         // Check if user is already logged in
@@ -40,10 +41,44 @@ export const AuthProvider = ({ children }) => {
                 setCurrentStoreState(parsedStores[0]);
                 setCurrentStore(parsedStores[0].id);
             }
+        } else {
+            // Check for existing guest session
+            const guestId = localStorage.getItem('guestId');
+            if (guestId) {
+                setIsGuest(true);
+            }
         }
 
         setLoading(false);
     }, []);
+
+    const continueAsGuest = async () => {
+        try {
+            const { data } = await guestAPI.start();
+            
+            // Save to localStorage
+            localStorage.setItem('token', data.token);
+            localStorage.setItem('user', JSON.stringify(data.user));
+            localStorage.setItem('stores', JSON.stringify(data.stores));
+            localStorage.setItem('guestId', data.user.email); // Use email as guestId flag
+
+            // Set current store
+            if (data.stores && data.stores.length > 0) {
+                setCurrentStore(data.stores[0].id);
+                setCurrentStoreState(data.stores[0]);
+            }
+
+            // Update state
+            setUser(data.user);
+            setStores(data.stores || []);
+            setIsGuest(true);
+
+            return data;
+        } catch (error) {
+            console.error('Guest start error:', error);
+            throw error;
+        }
+    };
 
     const signUp = async (name, email, password, storeName, storeType, role, adminCode, teamCapacity) => {
         try {
@@ -198,7 +233,9 @@ export const AuthProvider = ({ children }) => {
 
     const signOut = async () => {
         try {
-            await authAPI.signout();
+            if (!isGuest) {
+                await authAPI.signout();
+            }
         } catch (error) {
             console.error('Signout error:', error);
         } finally {
@@ -207,11 +244,13 @@ export const AuthProvider = ({ children }) => {
             localStorage.removeItem('user');
             localStorage.removeItem('stores');
             localStorage.removeItem('currentStoreId');
+            localStorage.removeItem('guestId');
 
             // Clear state
             setUser(null);
             setStores([]);
             setCurrentStoreState(null);
+            setIsGuest(false);
         }
     };
 
@@ -287,11 +326,13 @@ export const AuthProvider = ({ children }) => {
         stores,
         currentStore,
         loading,
+        isGuest,
         signUp,
         joinStore,
         signIn,
         staffLogin,
         signOut,
+        continueAsGuest,
         switchStore,
         createStore,
         refreshStores,

@@ -10,7 +10,7 @@ const api = axios.create({
     }
 });
 
-// Request interceptor to add JWT token and store ID
+// Request interceptor to add JWT token, store ID, or guest ID
 api.interceptors.request.use(
     (config) => {
         // Add JWT token if it exists
@@ -42,6 +42,7 @@ api.interceptors.response.use(
                 localStorage.removeItem('token');
                 localStorage.removeItem('user');
                 localStorage.removeItem('currentStoreId');
+                localStorage.removeItem('guestId');
                 window.location.href = '/login';
             }
 
@@ -62,6 +63,11 @@ export const authAPI = {
     staffLogin: (data) => api.post('/auth/staff-login', data),
     getMe: () => api.get('/auth/me'),
     signout: () => api.post('/auth/signout')
+};
+
+// Guest API
+export const guestAPI = {
+    start: () => api.post('/guest/start')
 };
 
 // Stores API
