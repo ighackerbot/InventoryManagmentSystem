@@ -1,0 +1,42 @@
+import React from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
+import { getInitials } from '../lib/utils';
+import { Button } from './Button';
+import StoreSwitcher from './StoreSwitcher';
+
+export const Navbar = () => {
+  const { user, currentStore, signOut, isGuest } = useAuth();
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+
+    const handleSignOut = async () => {
+        try { await signOut(); navigate('/login'); }
+        catch (error) { console.error('Sign out error:', error); }
+    };
+
+    return (
+        <nav className="navbar">
+            <div className="container navbar-content">
+                <Link to="/" className="navbar-brand" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <img src="/logo.png" alt="Inventory APK" style={{ width: '32px', height: '32px', objectFit: 'contain', borderRadius: '4px' }} />
+                    Inventory APK
+                </Link>
+                {isGuest ? (
+                    <div className="flex items-center gap-lg">
+                        <span className="badge badge-warning" style={{ background: '#f59e0b', color: '#fff' }}>GUEST</span>
+                        <button onClick={() => navigate('/signup')} className="btn btn-sm btn-primary">Sign Up</button>
+                        <button onClick={handleSignOut} className="btn btn-sm btn-secondary">Exit Guest</button>
+                    </div>
+                ) : user && (
+                    <div className="flex items-center gap-lg">
+                        <StoreSwitcher />
+                        <span className="text-white opacity-90 font-medium">{user.name || user.email?.split('@')[0]}</span>
+                        {currentStore && <span className="badge badge-info">{currentStore.role?.toUpperCase()}</span>}
+                        <button onClick={handleSignOut} className="btn btn-sm btn-secondary">Sign Out</button>
+                    </div>
+                )}
+            </div>
+        </nav>
+    );
+};
