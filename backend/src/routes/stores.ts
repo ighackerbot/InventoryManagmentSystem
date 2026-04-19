@@ -1,0 +1,108 @@
+import express, { Request, Response } from 'express';
+import Store from '../models/Store.js';
+import UserStoreRole from '../models/UserStoreRole.js';
+import { authenticate, requireStoreAccess, requireOwnerOrAdmin } from '../middleware/auth.js';
+
+const router = express.Router();
+
+/** GET /api/stores */
+router.get('/', authenticate, async (req: Request, res: Response): Promise<void> => {
+    try {
+        const stores = req.userStores!.map(us => ({
+            ...us.stores,
+            _id: us.store_id,
+            user_role: us.role
+        }));
+        res.json(stores);
+    } catch (error) {
+        console.error('Get stores error:', error);
+        res.status(500).json({ error: 'Failed to fetch stores' });
+    }
+});
+
+/** POST /api/stores */
+router.post('/', authenticate, async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { name, type, address, currency, taxPercent, adminPin, teamCapacity } = req.body as {
+            name?: string; type?: string; address?: string; currency?: string;
+            taxPercent?: number; adminPin?: string; teamCapacity?: number;
+        };
+
+        if (!name || !type) { res.status(400).json({ error: 'Name and type are required' }); return; }
+
+        const store = new Store({
+            name, type, address,
+            currency: currency || 'INR',
+            taxPercent: taxPercent || 0,
+            ownerId: req.user!.id,
+            adminPin: adminPin || undefined,
+            teamCapacity: teamCapacity || 50
+        });
+        await store.save();
+
+        const userStoreRole = new UserStoreRole({ userId: req.user!.id, storeId: store._id, role: 'admin' });
+        await userStoreRole.save();
+
+        res.status(201).json(store);
+    } catch (error) {
+        console.error('Create store error:', error);
+        res.status(500).json({ error: 'Failed to create store' });
+    }
+});
+
+/** GET /api/stores/:storeId */
+router.get('/:storeId', authenticate, requireStoreAccess(), async (req: Request, res: Response): Promise<void> => {
+    try {
+        const store = await Store.findById(req.storeId).lean();
+        if (!store) { res.status(404).json({ error: 'Store not found' }); return; }
+        res.json({ ...store, user_role: req.currentStore!.role });
+    } catch (error) {
+        console.error('Get store error:', error);
+        res.status(500).json({ error: 'Failed to fetch store' });
+    }
+});
+
+/** PUT /api/stores/:storeId */
+router.put('/:storeId', authenticate, requireStoreAccess(['admin']), async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { name, type, address, currency, taxPercent } = req.body as {
+            name?: string; type?: string; address?: string; currency?: string; taxPercent?: number;
+        };
+
+        const updates: Record<string, unknown> = {};
+        if (name !== undefined) updates.name = name;
+        if (type !== undefined) updates.type = type;
+        if (address !== undefined) updates.address = address;
+        if (currency !== undefined) updates.currency = currency;
+        if (taxPercent !== undefined) updates.taxPercent = taxPercent;
+
+        const store = await Store.findByIdAndUpdate(req.storeId, updates, { new: true, runValidators: true });
+        if (!store) { res.status(404).json({ error: 'Store not found' }); return; }
+        res.json(store);
+    } catch (error) {
+        console.error('Update store error:', error);
+        res.status(500).json({ error: 'Failed to update store' });
+    }
+});
+
+/** DELETE /api/stores/:storeId */
+router.delete('/:storeId', authenticate, requireOwnerOrAdmin, async (req: Request, res: Response): Promise<void> => {
+    try {
+        const store = await Store.findById(req.storeId);
+        if (!store) { res.status(404).json({ error: 'Store not found' }); return; }
+
+        if (String(store.ownerId) !== String(req.user!.id)) {
+            res.status(403).json({ error: 'Only store owner can delete the store' }); return;
+        }
+
+        await Store.findByIdAndDelete(req.storeId);
+        await UserStoreRole.deleteMany({ storeId: req.storeId });
+
+        res.json({ message: 'Store deleted successfully' });
+    } catch (error) {
+        console.error('Delete store error:', error);
+        res.status(500).json({ error: 'Failed to delete store' });
+    }
+});
+
+export default router;
