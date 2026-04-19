@@ -10,6 +10,7 @@ export interface IProduct extends Document {
     sellingPrice: number;
     lowStockThreshold: number;
     isLowStock?: boolean;
+    category?: string;
     createdAt: Date;
     updatedAt: Date;
 }

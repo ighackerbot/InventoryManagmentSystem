@@ -1,11 +1,10 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { cn } from '../lib/utils';
 
 export const Sidebar = () => {
   const location = useLocation();
-  const { isAdmin } = useAuth();
+  const { isAdmin, isGuest } = useAuth();
 
     const navItems = [
         { path: '/dashboard', label: '📊 Dashboard', icon: '📊', adminOnly: false },

@@ -1,14 +1,11 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { getInitials } from '../lib/utils';
-import { Button } from './Button';
 import StoreSwitcher from './StoreSwitcher';
 
 export const Navbar = () => {
   const { user, currentStore, signOut, isGuest } = useAuth();
   const navigate = useNavigate();
-  const [open, setOpen] = useState(false);
 
     const handleSignOut = async () => {
         try { await signOut(); navigate('/login'); }
