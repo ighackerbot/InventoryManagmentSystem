@@ -1,0 +1,8 @@
+# Tell GitHub Linguist to correctly detect TypeScript
+*.ts    linguist-language=TypeScript
+*.tsx   linguist-language=TypeScript
+
+# Mark vendor/config files as non-project code (excluded from stats)
+*.json  linguist-language=JSON
+frontend/eslint.config.js linguist-detectable=false
+**/node_modules/** linguist-vendored
